@@ -148,9 +148,7 @@ export class DxAdapter {
 
 
   static convertDataSource(records: DataRecord[]) {
-    return {
-        data: records || [],
-    };
+    return records || [];
   }
 
   static createInitialState(view: GridView) {

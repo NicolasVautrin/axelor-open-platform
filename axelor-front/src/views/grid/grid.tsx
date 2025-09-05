@@ -928,6 +928,7 @@ function GridInner(props: ViewProps<GridView>) {
   useAsyncEffect(async () => {
     if (useDxGrid && onSearch) {
       await onSearch({ ...searchOptions, fields: Object.keys(fields) });
+      console.log("grid.onSearch done");
     }
   }, [useDxGrid, onSearch, searchOptions, fields]);
   

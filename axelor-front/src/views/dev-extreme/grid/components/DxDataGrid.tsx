@@ -43,12 +43,6 @@ export function DxDataGrid({
                              onSave,
                              onDelete,
                            }: DxDataGridProps) {
-
-  const [localRecords, setLocalRecords] = useState<DataRecord[]>([]);
-
-  useEffect(() => {
-    setLocalRecords([...records]);
-  }, [records]);
   
   const {
     dxColumns,
@@ -59,21 +53,16 @@ export function DxDataGrid({
     handleRowUpdated,
   } = useDxGrid({
     view,
-    records: localRecords,
+    records,
     fields,
     onSelectionChanged,
     onRowClick,
     onSave,
   });
 
-  const gridKey = useMemo(() => {
-    return crypto?.randomUUID?.() || `dx-${Date.now()}-${Math.random()}`;
-  }, [dxDataSource, dxColumns]);
-
   return (
     <div className={styles.dxGridContainer}>
       <DevExtremeDataGrid
-        key={gridKey}
         dataSource={dxDataSource}
         keyExpr="id"
         showBorders={true}

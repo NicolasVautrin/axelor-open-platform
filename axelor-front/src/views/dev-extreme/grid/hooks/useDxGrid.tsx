@@ -20,14 +20,13 @@ export function useDxGrid({
                             onRowClick,
                             onSave,
                           }: UseDxGridProps) {
-
-  const [dxDataSource, setDxDataSource] = useState<DataRecord[]>([]);
-
-  // Mettre à jour quand records change
-  useEffect(() => {
-    const newDataSource = DxAdapter.convertDataSource(records);
-    setDxDataSource(newDataSource);
-  }, [records]);
+  
+  
+  const dxDataSource = useMemo(() => {
+      return DxAdapter.convertDataSource(records);
+    },
+    [records]
+  );
   
   // Conversion des colonnes Axelor vers DevExpress
   const dxColumns = useMemo(() =>
