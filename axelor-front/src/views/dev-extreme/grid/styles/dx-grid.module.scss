@@ -1,0 +1,33 @@
+.dxGridContainer {
+  height: 100%;
+  width: 100%;
+
+  :global {
+    .dx-datagrid {
+      // Personnalisation pour correspondre au thème Axelor
+      font-family: inherit;
+
+      .dx-datagrid-header-panel {
+        background-color: var(--bs-gray-100);
+      }
+
+      .dx-datagrid-headers {
+        background-color: var(--bs-gray-50);
+        font-weight: 600;
+      }
+
+      .dx-datagrid-rowsview .dx-row-alt {
+        background-color: var(--bs-gray-25);
+      }
+
+      .dx-datagrid-rowsview .dx-selection {
+        background-color: var(--bs-primary-100);
+      }
+    }
+  }
+}
+
+.dxGrid {
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bs-border-radius);
+}

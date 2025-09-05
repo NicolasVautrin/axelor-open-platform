@@ -87,6 +87,7 @@ import { SearchColumn } from "./renderers/search";
 import { getSearchFilter } from "./renderers/search/utils";
 
 import styles from "./grid.module.scss";
+import { DxDataGrid } from '../dev-extreme/grid/components/DxDataGrid';
 
 export function Grid(props: ViewProps<GridView>) {
   const { action } = useViewTab();
@@ -168,6 +169,8 @@ function GridInner(props: ViewProps<GridView>) {
   const switchTo = useViewSwitch();
   const { isMobile } = useDevice();
   const { data: sessionData } = useSession();
+
+  const useDxGrid = view.css?.includes('dx-grid');
 
   const viewContext = useMemo(
     () => processContextValues(action.context ?? {}),
@@ -1363,13 +1366,45 @@ function GridInner(props: ViewProps<GridView>) {
       )}
       {canShowHelp && (
         <div className={styles.help}>
-          <HelpComponent text={inlineHelp.text} css={inlineHelp.css} />
+          <HelpComponent text={inlineHelp.text}/>
         </div>
       )}
       <div className={styles.views}>
         <div className={styles["grid-view"]} style={gridViewStyles}>
           <GridWrapper state={state} isTreeGrid={Boolean(isTreeGrid)}>
-            <GridComponent
+            {useDxGrid ? (
+                <DxDataGrid
+                  view={view}
+                  records={records}
+                  fields={fields}
+                  editable={!selector && !readonly && editable}
+                  onSelectionChanged={(selectedRows) => {
+                    // Conversion vers format Axelor
+                    setState(draft => {
+                      draft.selectedRows = selectedRows.map(row =>
+                        records.findIndex(r => r.id === row.id)
+                      ).filter(index => index >= 0);
+                    });
+                  }}
+                  onRowClick={(e) => {
+                    const record = e.data;
+                    if (readonly === true) {
+                      onView(record);
+                    } else {
+                      onEdit(record);
+                    }
+                  }}
+                  onRowDblClick={(e) => {
+                    const record = e.data;
+                    onEdit(record);
+                  }}
+                  onSave={onSave}
+                  onDelete={(records) => onDelete(records)}
+                  searchOptions={searchOptions}
+                  className={styles.grid}
+                />
+              ) : (
+              <GridComponent
               className={styles.grid}
               ref={gridRef}
               records={records}
@@ -1410,7 +1445,7 @@ function GridInner(props: ViewProps<GridView>) {
               {...(!canNew && {
                 onRecordAdd: undefined,
               })}
-            />
+            />)}
           </GridWrapper>
           {hasDetailsView && dirty && (
             <Box bg="light" className={styles.overlay} />
