@@ -76,6 +76,16 @@ export class DxAdapter {
     return true;
   }
 
+  private static getDisplayValue(value: any, field?: Field): string {
+    if (!value || typeof value !== 'object') {
+      return String(value || '');
+    }
+
+    // ✅ Utiliser targetName des métadonnées Axelor !
+    const displayField = field?.targetName || 'name';
+    return value[displayField] || String(value.id || '');
+  }
+
   private static isColumnEditable(item: any, field?: Field): boolean {
     return !(item.readonly === true || field?.readonly === true);
   }
@@ -84,6 +94,11 @@ export class DxAdapter {
     try {
       if (value === null || value === undefined) {
         return '';
+      }
+
+      // ✅ Gestion des objets complexes (relations)
+      if (value && typeof value === 'object' && field?.targetName) {
+        return value[field.targetName] || String(value.id || '');
       }
 
       // Formatage basique par type
