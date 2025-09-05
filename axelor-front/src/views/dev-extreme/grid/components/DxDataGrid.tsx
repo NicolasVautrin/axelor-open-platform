@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import 'devextreme/dist/css/dx.light.css';
 import {
   DataGrid as DevExtremeDataGrid,
@@ -43,7 +43,7 @@ export function DxDataGrid({
                              onSave,
                              onDelete,
                            }: DxDataGridProps) {
-
+  
   const {
     dxColumns,
     dxDataSource,
@@ -60,28 +60,14 @@ export function DxDataGrid({
     onSave,
   });
 
-  console.log('🚀 DxDataGrid rendered!', { view: view.name, recordsCount: records.length });
-
-  const dxToolbarItems = useMemo(() => [
-    {
-      location: 'before',
-      template: 'newButton'
-    },
-    {
-      location: 'before',
-      template: 'editButton'
-    },
-    {
-      location: 'before',
-      template: 'deleteButton'
-    },
-    'searchPanel',
-    'columnChooserButton',
-  ], []);
+  const gridKey = useMemo(() => {
+    return crypto?.randomUUID?.() || `dx-${Date.now()}-${Math.random()}`;
+  }, [dxDataSource, dxColumns]);
 
   return (
     <div className={styles.dxGridContainer}>
       <DevExtremeDataGrid
+        key={gridKey}
         dataSource={dxDataSource}
         keyExpr="id"
         showBorders={true}
@@ -94,6 +80,12 @@ export function DxDataGrid({
         onRowDblClick={onRowDblClick}
         onRowUpdated={handleRowUpdated}
         className={styles.dxGrid}
+        onInitialized={(e) => {
+          console.log('⚡ DevExpress initialized!', Date.now());
+        }}
+        onContentReady={(e) => {
+          console.log('✅ DevExpress content ready!', e.component.totalCount());
+        }}
       >
         {/* Sélection */}
         <DxSelection
@@ -122,13 +114,6 @@ export function DxDataGrid({
             allowDeleting={true}
           />
         )}
-
-        {/* Barre d'outils */}
-        <DxToolbar>
-          {dxToolbarItems.map((item, index) => (
-            <DxItem key={index} {...item} />
-          ))}
-        </DxToolbar>
 
         {/* Colonnes */}
         {dxColumns.map(column => (

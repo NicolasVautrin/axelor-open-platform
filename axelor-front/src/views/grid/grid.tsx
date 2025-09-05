@@ -171,7 +171,7 @@ function GridInner(props: ViewProps<GridView>) {
   const { data: sessionData } = useSession();
 
   const useDxGrid = view.css?.includes('dx-grid');
-
+  
   const viewContext = useMemo(
     () => processContextValues(action.context ?? {}),
     [action.context],
@@ -222,7 +222,8 @@ function GridInner(props: ViewProps<GridView>) {
   useEffect(
     () =>
       dataStore.subscribe((ds) => {
-        setRecords(processSearchResult(ds));
+        const processed = processSearchResult(ds);
+        setRecords(processed);
       }),
     [dataStore, processSearchResult],
   );
@@ -924,6 +925,12 @@ function GridInner(props: ViewProps<GridView>) {
     return options;
   }, [orderBy, currentPage, limit]);
 
+  useAsyncEffect(async () => {
+    if (useDxGrid && onSearch) {
+      await onSearch({ ...searchOptions, fields: Object.keys(fields) });
+    }
+  }, [useDxGrid, onSearch, searchOptions, fields]);
+  
   const onGridSearch = useCallback(
     (options?: SearchOptions) => {
       if (cacheDataRef.current) {
@@ -1372,80 +1379,82 @@ function GridInner(props: ViewProps<GridView>) {
       <div className={styles.views}>
         <div className={styles["grid-view"]} style={gridViewStyles}>
           <GridWrapper state={state} isTreeGrid={Boolean(isTreeGrid)}>
+            {/* Rendre DevExpress si activé */}
             {useDxGrid ? (
-                <DxDataGrid
-                  view={view}
-                  records={records}
-                  fields={fields}
-                  editable={!selector && !readonly && editable}
-                  onSelectionChanged={(selectedRows) => {
-                    // Conversion vers format Axelor
-                    setState(draft => {
-                      draft.selectedRows = selectedRows.map(row =>
-                        records.findIndex(r => r.id === row.id)
-                      ).filter(index => index >= 0);
-                    });
-                  }}
-                  onRowClick={(e) => {
-                    const record = e.data;
-                    if (readonly === true) {
-                      onView(record);
-                    } else {
-                      onEdit(record);
-                    }
-                  }}
-                  onRowDblClick={(e) => {
-                    const record = e.data;
+              <DxDataGrid
+                view={view}
+                records={records}
+                fields={fields}
+                editable={!selector && !readonly && editable}
+                onSelectionChanged={(selectedRows) => {
+                  // Conversion vers format Axelor
+                  setState(draft => {
+                    draft.selectedRows = selectedRows.map(row =>
+                      records.findIndex(r => r.id === row.id)
+                    ).filter(index => index >= 0);
+                  });
+                }}
+                onRowClick={(e) => {
+                  const record = e.data;
+                  if (readonly === true) {
+                    onView(record);
+                  } else {
                     onEdit(record);
-                  }}
-                  onSave={onSave}
-                  onDelete={(records) => onDelete(records)}
-                  searchOptions={searchOptions}
-                  className={styles.grid}
-                />
-              ) : (
+                  }
+                }}
+                onRowDblClick={(e) => {
+                  const record = e.data;
+                  onEdit(record);
+                }}
+                onSave={onSave}
+                onDelete={(records) => onDelete(records)}
+                searchOptions={searchOptions}
+                className={styles.grid}
+              />) : (
               <GridComponent
               className={styles.grid}
-              ref={gridRef}
-              records={records}
-              view={view}
-              viewContext={viewContext}
-              fields={fields}
-              perms={perms}
-              state={state}
-              setState={setState}
-              sortType={"live"}
-              editable={!selector && !readonly && editable}
-              {...((isExpandable || isTreeGrid) && {
-                gridContext,
-                showAsTree: isTreeGrid,
-                showNewIcon: canNew,
-                showDeleteIcon: canDelete,
-                expandable: true,
-                expandableView,
-                onNew: handleNew,
-                onDelete,
-              })}
-              showEditIcon={canEdit}
-              searchOptions={searchOptions}
-              searchAtom={searchAtom}
-              actionExecutor={actionExecutor}
-              onEdit={readonly === true ? onView : onEdit}
-              onView={onView}
-              onSearch={onGridSearch}
-              onSave={onSave}
-              onDiscard={onDiscard}
-              onRowReorder={onRowReorder}
-              noRecordsText={i18n.get("No records found.")}
-              onColumnCustomize={onColumnCustomize}
-              {...(dashlet ? {} : searchProps)}
-              {...dashletProps}
-              {...popupProps}
-              {...detailsProps}
-              {...(!canNew && {
-                onRecordAdd: undefined,
-              })}
-            />)}
+            ref={gridRef}
+            records={records}
+            view={view}
+            viewContext={viewContext}
+            fields={fields}
+            perms={perms}
+            state={state}
+            setState={setState}
+            sortType={"live"}
+            editable={!selector && !readonly && editable}
+            {...((isExpandable || isTreeGrid) && {
+              gridContext,
+              showAsTree: isTreeGrid,
+              showNewIcon: canNew,
+              showDeleteIcon: canDelete,
+              expandable: true,
+              expandableView,
+              onNew: handleNew,
+              onDelete,
+            })}
+            showEditIcon={canEdit}
+            searchOptions={searchOptions}
+            searchAtom={searchAtom}
+            actionExecutor={actionExecutor}
+            onEdit={readonly === true ? onView : onEdit}
+            onView={onView}
+            onSearch={onGridSearch}
+            onSave={onSave}
+            onDiscard={onDiscard}
+            onRowReorder={onRowReorder}
+            noRecordsText={i18n.get("No records found.")}
+            onColumnCustomize={onColumnCustomize}
+            {...(dashlet ? {} : searchProps)}
+            {...dashletProps}
+            {...popupProps}
+            {...detailsProps}
+            {...(!canNew && {
+              onRecordAdd: undefined,
+            })}
+          />
+          )}
+
           </GridWrapper>
           {hasDetailsView && dirty && (
             <Box bg="light" className={styles.overlay} />

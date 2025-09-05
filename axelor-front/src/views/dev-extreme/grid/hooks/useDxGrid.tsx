@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from 'react';
+import {useMemo, useCallback, useRef, useEffect, useState} from 'react';
 import { GridView, Field } from '@/services/client/meta.types';
 import { DataRecord } from '@/services/client/data.types';
 import { DxAdapter } from '../adapters/DxAdapter';
@@ -21,16 +21,18 @@ export function useDxGrid({
                             onSave,
                           }: UseDxGridProps) {
 
+  const [dxDataSource, setDxDataSource] = useState<DataRecord[]>([]);
+
+  // Mettre à jour quand records change
+  useEffect(() => {
+    const newDataSource = DxAdapter.convertDataSource(records);
+    setDxDataSource(newDataSource);
+  }, [records]);
+  
   // Conversion des colonnes Axelor vers DevExpress
   const dxColumns = useMemo(() =>
       DxAdapter.convertColumns(view, fields),
     [view, fields]
-  );
-
-  // Source de données DevExpress
-  const dxDataSource = useMemo(() =>
-      DxAdapter.convertDataSource(records),
-    [records]
   );
 
   // État DevExpress

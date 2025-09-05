@@ -146,14 +146,10 @@ export class DxAdapter {
     }
   }
 
-  static convertDataSource(records: DataRecord[]): DxDataSourceConfig {
+
+  static convertDataSource(records: DataRecord[]) {
     return {
-      store: {
-        type: 'array',
-        data: records,
-        key: 'id',
-      },
-      paginate: true,
+        data: records || [],
     };
   }
 
