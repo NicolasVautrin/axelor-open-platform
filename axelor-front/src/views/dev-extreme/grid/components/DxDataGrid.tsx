@@ -43,6 +43,12 @@ export function DxDataGrid({
                              onSave,
                              onDelete,
                            }: DxDataGridProps) {
+
+  const [localRecords, setLocalRecords] = useState<DataRecord[]>([]);
+
+  useEffect(() => {
+    setLocalRecords([...records]);
+  }, [records]);
   
   const {
     dxColumns,
@@ -53,7 +59,7 @@ export function DxDataGrid({
     handleRowUpdated,
   } = useDxGrid({
     view,
-    records,
+    records: localRecords,
     fields,
     onSelectionChanged,
     onRowClick,
