@@ -2,6 +2,7 @@ import { GridView, Field } from '@/services/client/meta.types';
 import { DataRecord } from '@/services/client/data.types';
 import format from "@/utils/format";
 import { DxColumnConfig, DxDataSourceConfig,DxCellInfo } from '../types/DxGridTypes';
+import {SearchState} from "@/views/grid/renderers/search";
 
 export class DxAdapter {
 
@@ -42,6 +43,225 @@ export class DxAdapter {
           axelorAttrs: item.widgetAttrs,
         } satisfies DxColumnConfig; // Vérification de type à la compilation
       }) || [];
+  }
+
+  static convertAxelorSearchToDxFilter(
+    searchState: Record<string, string> = {},
+    fields: Record<string, Field>,
+    viewItems: GridView["items"] = []
+  ): any {
+    if (!searchState || Object.keys(searchState).length === 0) {
+      return null;
+    }
+
+    const filters: any[] = [];
+
+    Object.entries(searchState).forEach(([fieldName, value]) => {
+      if (!value || value.trim() === '') return;
+
+      const field = fields[fieldName];
+      const dxFilter = this.convertAxelorFieldSearchToDx(fieldName, value.trim(), field);
+      if (dxFilter) {
+        filters.push(dxFilter);
+      }
+    });
+
+    if (filters.length === 0) return null;
+    if (filters.length === 1) return filters[0];
+
+    // Combiner plusieurs filtres avec AND
+    return filters.reduce((acc, filter) => {
+      if (!acc) return filter;
+      if (Array.isArray(acc) && acc[0] === 'and') {
+        return [...acc, filter];
+      }
+      return ['and', acc, filter];
+    });
+  }
+
+  static convertDxFilterToAxelorSearch(
+    dxFilter: any,
+    fields: Record<string, Field>,
+    viewItems: GridView["items"]
+  ): SearchState {
+    if (!dxFilter) return {};
+
+    const searchState: SearchState = {};
+
+    // Convertir récursivement les filtres DevExtreme
+    const convertFilter = (filter: any): void => {
+      if (Array.isArray(filter)) {
+        const [fieldName, operator, value] = filter;
+
+        if (fieldName && typeof fieldName === 'string') {
+          // Convertir la valeur selon le type de champ
+          const field = fields[fieldName];
+          searchState[fieldName] = this.convertFilterValue(value, operator, field);
+        }
+      } else if (filter && typeof filter === 'object') {
+        // Traiter les filtres complexes (AND, OR)
+        if (filter.operator === 'and' || filter.operator === 'or') {
+          filter.criteria?.forEach((subFilter: any) => {
+            convertFilter(subFilter);
+          });
+        }
+      }
+    };
+
+    convertFilter(dxFilter);
+    return searchState;
+  }
+
+  /**
+   * Mappe les opérateurs Axelor vers DevExtreme
+   */
+  private static mapAxelorOperatorToDx(axelorOp: string): string {
+    const mapping: Record<string, string> = {
+      '=': '=',
+      '!=': '<>',
+      '>': '>',
+      '>=': '>=',
+      '<': '<',
+      '<=': '<='
+    };
+    return mapping[axelorOp] || 'contains';
+  }
+
+  /**
+   * Détermine l'opérateur par défaut selon le type de champ
+   */
+  private static getDefaultOperatorForField(field?: Field): string {
+    if (!field) return 'contains';
+
+    switch (field.type) {
+      case 'INTEGER':
+      case 'LONG':
+      case 'DECIMAL':
+      case 'DATE':
+      case 'DATETIME':
+        return '=';
+      case 'BOOLEAN':
+        return '=';
+      case 'ENUM':
+        return '=';
+      default:
+        return 'contains'; // Pour STRING et autres
+    }
+  }
+
+  private static convertAxelorFieldSearchToDx(
+    fieldName: string,
+    value: string,
+    field?: Field
+  ): any {
+    if (!value) return null;
+
+    // Gestion des plages (between) : format Axelor "<max<min"
+    const betweenMatch = value.match(/^<(.+)<(.+)$/);
+    if (betweenMatch) {
+      const [, max, min] = betweenMatch;
+      const convertedMin = this.convertValueByFieldType(min, field);
+      const convertedMax = this.convertValueByFieldType(max, field);
+      return [fieldName, 'between', [convertedMin, convertedMax]];
+    }
+
+    // Gestion des opérateurs : >=, <=, >, <, !=, =
+    const operatorMatch = value.match(/^(>=|<=|>|<|!=|=)(.+)$/);
+    if (operatorMatch) {
+      const [, operator, val] = operatorMatch;
+      const dxOperator = this.mapAxelorOperatorToDx(operator);
+      const convertedValue = this.convertValueByFieldType(val, field);
+      return [fieldName, dxOperator, convertedValue];
+    }
+
+    // Gestion spéciale pour les champs relationnels (many-to-one)
+    if (field?.type === 'MANY_TO_ONE') {
+      // Recherche sur le champ d'affichage (targetName)
+      const targetField = `${fieldName}.${field.targetName || 'name'}`;
+      return [targetField, 'contains', value];
+    }
+
+    // Gestion des sélections multiples avec " | "
+    if (value.includes(' | ')) {
+      const values = value.split(' | ').filter(v => v.trim());
+      if (values.length > 1) {
+        const orFilters = values.map(v => [fieldName, 'contains', v.trim()]);
+        return ['or', ...orFilters];
+      } else if (values.length === 1) {
+        // Un seul élément après split, traiter normalement
+        return [fieldName, 'contains', values[0]];
+      }
+    }
+
+    // Recherche textuelle simple (LIKE/contains par défaut)
+    return [fieldName, this.getDefaultOperatorForField(field), value];
+  }
+
+  private static convertValueByFieldType(value: string, field?: Field): any {
+    if (!field || !value) return value;
+
+    try {
+      switch (field.type) {
+        case 'INTEGER':
+        case 'LONG':
+          const intVal = parseInt(value, 10);
+          return isNaN(intVal) ? 0 : intVal;
+
+        case 'DECIMAL':
+          const floatVal = parseFloat(value);
+          return isNaN(floatVal) ? 0 : floatVal;
+
+        case 'BOOLEAN':
+          return /^(true|1|yes|y|oui)$/i.test(value);
+
+        case 'DATE':
+          // Format Axelor : YYYY-MM-DD
+          if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+            return new Date(value + 'T00:00:00');
+          }
+          return new Date(value);
+
+        case 'DATETIME':
+          return new Date(value);
+
+        case 'ENUM':
+          return value; // Garder tel quel
+
+        default:
+          return value;
+      }
+    } catch (error) {
+      console.warn(`Erreur conversion valeur "${value}" pour champ ${field.name}:`, error);
+      return value;
+    }
+  }
+
+  private static convertFilterValue(value: any, operator: string, field?: Field): string {
+    if (!value) return '';
+
+    // Adapter selon l'opérateur DevExtreme vers format Axelor
+    switch (operator) {
+      case 'contains':
+        return String(value);
+      case 'startswith':
+        return String(value);
+      case '=':
+        return `=${value}`;
+      case '<>':
+        return `!=${value}`;
+      case '<':
+        return `<${value}`;
+      case '<=':
+        return `<=${value}`;
+      case '>':
+        return `>${value}`;
+      case '>=':
+        return `>=${value}`;
+      case 'between':
+        return `<${value[1]}<${value[0]}`;
+      default:
+        return String(value);
+    }
   }
 
 // Méthodes helper avec types corrects

@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useMemo, useState} from 'react';
+import React, {forwardRef, useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import 'devextreme/dist/css/dx.light.css';
 import {
   DataGrid as DevExtremeDataGrid,
@@ -18,51 +18,85 @@ import { DxAdapter } from '../adapters/DxAdapter';
 import { useDxGrid } from '../hooks/useDxGrid';
 
 import styles from '../styles/dx-grid.module.scss';
+import {SearchOptions} from "@/services/client/data.ts";
+import {SearchState} from "@/views/grid/renderers/search";
+import {GridSortColumn, GridState} from "@axelor/ui/grid";
+import {atom, useAtomValue} from "jotai";
+import {GridHandler} from "@/views/grid/builder";
+import {getSortBy} from "@/views/grid/builder/utils.ts";
 
 interface DxDataGridProps {
   view: GridView;
   records: DataRecord[];
   fields: Record<string, Field>;
   editable?: boolean;
-  onSelectionChanged?: (selectedRows: any[]) => void;
+  state?: GridState;
+  setState?: (updater: (draft: GridState) => void) => void;
   onRowClick?: (e: any) => void;
   onRowDblClick?: (e: any) => void;
   onSave?: (record: DataRecord) => Promise<DataRecord | null>;
   onDelete?: (records: DataRecord[]) => Promise<void>;
+  onSearch?: (options: SearchOptions) => Promise<void>;
   // ... autres props Axelor
 }
 
-export function DxDataGrid({
-                             view,
-                             records,
-                             fields,
-                             editable = false,
-                             onSelectionChanged,
-                             onRowClick,
-                             onRowDblClick,
-                             onSave,
-                             onDelete,
-                           }: DxDataGridProps) {
-  
-  const {
-    dxColumns,
-    dxDataSource,
-    dxState,
-    handleSelectionChanged,
-    handleRowClick,
-    handleRowUpdated,
-  } = useDxGrid({
-    view,
-    records,
-    fields,
-    onSelectionChanged,
-    onRowClick,
-    onSave,
-  });
+export const DxDataGrid = forwardRef<HTMLDivElement, DxDataGridProps>(
+  function DxDataGrid(props, ref) {
+
+    const {
+      view,
+      records,
+      fields,
+      editable = false,
+      searchAtom,
+      onSearch,
+      state,
+      setState,
+      onRowClick,
+      onRowDblClick,
+      onSave,
+      onDelete,
+      searchOptions,
+      className,
+    } = props;
+    
+    const dxGridRef = useRef<any>(null);
+
+    const {
+      dxColumns,
+      dxDataSource,
+      dxState,
+      handleSelectionChanged,
+      handleRowClick,
+      handleRowUpdated,
+    } = useDxGrid(props);
+
+  const searchState = useAtomValue(searchAtom || atom({ search: {} }));
+  const [sortColumns, setSortColumns] = useState<GridSortColumn[]>([]);
+
+  // Synchroniser avec DevExtreme
+  const dxFilterValue = useMemo(() =>
+      DxAdapter.convertAxelorSearchToDxFilter(searchState.search, fields, view.items),
+    [searchState.search, fields, view.items]
+  );
+
+  // Gestionnaire pour les changements de tri
+  const handleSortingChanged = useCallback((e: any) => {
+    const newSortColumns = e.component.option('sortByGroupSummaryInfo') || [];
+    setSortColumns(newSortColumns);
+
+    if (onSearch) {
+      const sortBy = getSortBy(newSortColumns);
+      onSearch({ sortBy, offset: 0 });
+    }
+  }, [onSearch]);  
 
   return (
     <div className={styles.dxGridContainer}>
       <DevExtremeDataGrid
+        ref={(ref) => {
+          dxGridRef.current = ref?.instance;
+        }}
         dataSource={dxDataSource}
         keyExpr="id"
         showBorders={true}
@@ -117,4 +151,4 @@ export function DxDataGrid({
       </DevExtremeDataGrid>
     </div>
   );
-}
+});

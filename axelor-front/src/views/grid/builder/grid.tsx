@@ -71,6 +71,7 @@ import {
 import { ExpandIcon, ExpandableFormView } from "./expandable";
 
 import styles from "../grid.module.scss";
+import {DxDataGrid} from "@/views/dev-extreme";
 
 function formatter(column: Field, value: any, record: any) {
   return format(value, {
@@ -652,6 +653,30 @@ export const Grid = forwardRef<
     () => ({ ..._gridContext, readonly: !editable && readonly }),
     [editable, readonly, _gridContext],
   );
+
+  // Détecter si on doit utiliser DevExtreme
+  const useDxGrid = view.css?.includes('dx-grid');
+  
+  if (useDxGrid) {
+    // Adapter les props pour DxDataGrid
+    const dxProps = {
+      view,
+      records: records,
+      fields: fields,
+      editable: editable,
+      searchAtom: searchAtom,
+      state,
+      setState,
+      onSearch: onSearch,
+      onRowDblClick: handleRowDoubleClick,
+      onSave: onSave,
+      onDelete: onDelete,
+      searchOptions: searchOptions,
+      className: className,
+    };
+
+    return <DxDataGrid ref={gridRef} {...dxProps} />;
+  }
 
   return (
     <AxGridProvider>

@@ -87,7 +87,6 @@ import { SearchColumn } from "./renderers/search";
 import { getSearchFilter } from "./renderers/search/utils";
 
 import styles from "./grid.module.scss";
-import { DxDataGrid } from '../dev-extreme/grid/components/DxDataGrid';
 
 export function Grid(props: ViewProps<GridView>) {
   const { action } = useViewTab();
@@ -1380,38 +1379,6 @@ function GridInner(props: ViewProps<GridView>) {
       <div className={styles.views}>
         <div className={styles["grid-view"]} style={gridViewStyles}>
           <GridWrapper state={state} isTreeGrid={Boolean(isTreeGrid)}>
-            {/* Rendre DevExpress si activé */}
-            {useDxGrid ? (
-              <DxDataGrid
-                view={view}
-                records={records}
-                fields={fields}
-                editable={!selector && !readonly && editable}
-                onSelectionChanged={(selectedRows) => {
-                  // Conversion vers format Axelor
-                  setState(draft => {
-                    draft.selectedRows = selectedRows.map(row =>
-                      records.findIndex(r => r.id === row.id)
-                    ).filter(index => index >= 0);
-                  });
-                }}
-                onRowClick={(e) => {
-                  const record = e.data;
-                  if (readonly === true) {
-                    onView(record);
-                  } else {
-                    onEdit(record);
-                  }
-                }}
-                onRowDblClick={(e) => {
-                  const record = e.data;
-                  onEdit(record);
-                }}
-                onSave={onSave}
-                onDelete={(records) => onDelete(records)}
-                searchOptions={searchOptions}
-                className={styles.grid}
-              />) : (
               <GridComponent
               className={styles.grid}
             ref={gridRef}
@@ -1454,7 +1421,6 @@ function GridInner(props: ViewProps<GridView>) {
               onRecordAdd: undefined,
             })}
           />
-          )}
 
           </GridWrapper>
           {hasDetailsView && dirty && (
