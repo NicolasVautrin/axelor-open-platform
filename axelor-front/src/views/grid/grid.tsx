@@ -4,7 +4,9 @@ import isEqual from "lodash/isEqual";
 import isString from "lodash/isString";
 import uniqueId from "lodash/uniqueId";
 import {
+  lazy,
   ReactElement,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -89,11 +91,21 @@ import { getSearchFilter } from "./renderers/search/utils";
 
 import styles from "./grid.module.scss";
 
+// Import du composant DevExtreme Grid
+const DxGridInner = lazy(() => import("./dx-grid/DxGridInner"));
+
 export function Grid(props: ViewProps<GridView>) {
   const { action } = useViewTab();
+  const { meta } = props;
+  const view = meta.view;
+
+  // Check for DMS template
   if (action.params?.["ui-template:grid"] === "dms-file-list") {
     return <Dms {...props} />;
   }
+
+  // Use GridInner for all grids (including DevExtreme)
+  // DevExtreme will be used internally when css="dx-grid"
   return <GridInner {...props} />;
 }
 
@@ -842,6 +854,9 @@ function GridInner(props: ViewProps<GridView>) {
 
   useEffect(() => {
     setViewProps((viewProps) => {
+      if (selectedRows && selectedRows.length > 0) {
+        debugger; // Breakpoint pour voir la pile d'appel quand selectedRows est détecté
+      }
       const selectedId = selectedRows
         ? rows[selectedRows?.[0]]?.record.id
         : undefined;
@@ -1354,48 +1369,63 @@ function GridInner(props: ViewProps<GridView>) {
       <div className={styles.views}>
         <div className={styles["grid-view"]} style={gridViewStyles}>
           <GridWrapper state={state} isTreeGrid={Boolean(isTreeGrid)}>
-            <GridComponent
-              className={styles.grid}
-              ref={gridRef}
-              records={records}
-              view={view}
-              viewContext={viewContext}
-              fields={fields}
-              perms={perms}
-              state={state}
-              setState={setState}
-              sortType={"live"}
-              editable={!selector && !readonly && editable}
-              {...((isExpandable || isTreeGrid) && {
-                gridContext,
-                showAsTree: isTreeGrid,
-                showNewIcon: canNew,
-                showDeleteIcon: canDelete,
-                expandable: true,
-                expandableView,
-                onNew: handleNew,
-                onDelete,
-              })}
-              showEditIcon={canEdit}
-              searchOptions={searchOptions}
-              searchAtom={searchAtom}
-              actionExecutor={actionExecutor}
-              onEdit={readonly === true ? onView : onEdit}
-              onView={onView}
-              onSearch={onGridSearch}
-              onSave={onSave}
-              onDiscard={onDiscard}
-              onRowReorder={onRowReorder}
-              noRecordsText={i18n.get("No records found.")}
-              onColumnCustomize={onColumnCustomize}
-              {...(dashlet ? {} : searchProps)}
-              {...dashletProps}
-              {...popupProps}
-              {...detailsProps}
-              {...(!canNew && {
-                onRecordAdd: undefined,
-              })}
-            />
+            {view.css?.includes("dx-grid") ? (
+              <Suspense fallback={<div>Loading DevExtreme Grid...</div>}>
+                <DxGridInner
+                  meta={meta}
+                  dataStore={dataStore}
+                  searchAtom={searchAtom!}
+                  onSearch={onGridSearch}
+                  searchOptions={searchOptions}
+                  onEdit={onEdit}
+                  state={state}
+                  setState={setState}
+                />
+              </Suspense>
+            ) : (
+              <GridComponent
+                className={styles.grid}
+                ref={gridRef}
+                records={records}
+                view={view}
+                viewContext={viewContext}
+                fields={fields}
+                perms={perms}
+                state={state}
+                setState={setState}
+                sortType={"live"}
+                editable={!selector && !readonly && editable}
+                {...((isExpandable || isTreeGrid) && {
+                  gridContext,
+                  showAsTree: isTreeGrid,
+                  showNewIcon: canNew,
+                  showDeleteIcon: canDelete,
+                  expandable: true,
+                  expandableView,
+                  onNew: handleNew,
+                  onDelete,
+                })}
+                showEditIcon={canEdit}
+                searchOptions={searchOptions}
+                searchAtom={searchAtom}
+                actionExecutor={actionExecutor}
+                onEdit={readonly === true ? onView : onEdit}
+                onView={onView}
+                onSearch={onGridSearch}
+                onSave={onSave}
+                onDiscard={onDiscard}
+                onRowReorder={onRowReorder}
+                noRecordsText={i18n.get("No records found.")}
+                onColumnCustomize={onColumnCustomize}
+                {...(dashlet ? {} : searchProps)}
+                {...dashletProps}
+                {...popupProps}
+                {...detailsProps}
+                {...(!canNew && {
+                  onRecordAdd: undefined,
+                })}
+              />
+            )}
           </GridWrapper>
           {hasDetailsView && dirty && (
             <Box bg="light" className={styles.overlay} />
