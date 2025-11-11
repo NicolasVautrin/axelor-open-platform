@@ -31,7 +31,7 @@ import { GridView, Field } from "@/services/client/meta.types";
 import { dxLog } from "@/utils/dev-tools";
 import { getStandardColumnProps } from "./columns/StandardColumn";
 import { getEditColumnProps } from "./columns/EditColumn";
-import { getSelectColumnProps } from "./columns/SelectColumn";
+import { getSelectColumnProps, SelectAllHeader } from "./columns/SelectColumn";
 import { rowSelectionAtomFamily, clearAllSelectionsAtom, toggleRowSelectionAtom } from "./selectionAtoms";
 import { DataRecord } from "@/services/client/data.types";
 import { i18n } from "@/services/client/i18n";
@@ -493,6 +493,26 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps,>(function DxGridI
     },
   }), []);
 
+  // Fonction pour obtenir les clés des lignes visibles
+  const getVisibleRowKeys = useCallback(() => {
+    const gridInstance = getGridInstance(dataGridRef);
+    if (gridInstance) {
+      // getVisibleRows() retourne un tableau d'objets comme { data: ..., key: ..., rowType: ... }
+      // Nous avons besoin uniquement de la 'key' pour les lignes de données.
+      return gridInstance.getVisibleRows().filter(row => row.rowType === 'data').map(row => row.key);
+    }
+    return [];
+  }, []);
+
+  // Fonction de rendu pour l'en-tête de la colonne de sélection
+  // Cette fonction est mémoïsée pour éviter un nouveau composant à chaque rendu de DxGridInner.
+  // Elle appelle getVisibleRowKeys à chaque fois qu'elle est exécutée par DevExtreme,
+  // ce qui assure que SelectAllHeader reçoit toujours la liste la plus à jour.
+  const renderSelectAllHeader = useCallback(() => {
+    const currentVisibleRowKeys = getVisibleRowKeys();
+    return <SelectAllHeader visibleRowKeys={currentVisibleRowKeys} />;
+  }, [getVisibleRowKeys]); // getVisibleRowKeys est stable grâce à useCallback
+
   // Mémoriser la configuration de la colonne de sélection
   // OPTIMISATION : Passe l'atomFamily et les callbacks stables en paramètres
   // La référence de selectColumnProps ne change que si les callbacks changent
@@ -501,8 +521,9 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps,>(function DxGridI
       rowSelectionAtomFamily,
       onToggleSelection: handleToggleSelection,
       onRevert: handleRevert,
+      headerCellRender: renderSelectAllHeader, // Passez la fonction de rendu de l'en-tête
     });
-  }, [handleToggleSelection, handleRevert]);
+  }, [handleToggleSelection, handleRevert, renderSelectAllHeader]); // Assurez-vous que renderSelectAllHeader est une dépendance
 
   // Monkey patches de diagnostic (activables via dx-grid-debug.ts)
   useEffect(() => {
@@ -558,6 +579,11 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps,>(function DxGridI
               onEdit,
             })}
           />
+        )}
+
+        {/* Colonne de commandes DevExtreme vide pour désactiver les boutons Edit/Save/Cancel par défaut */}
+        {view.editable && (
+          <Column type="buttons" width={0} visible={false} />
         )}
 
         {/* Colonnes (fields ET buttons dans l'ordre de la vue) */}

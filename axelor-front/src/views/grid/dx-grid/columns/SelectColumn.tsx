@@ -1,7 +1,11 @@
-import React from "react";
+import React, { useCallback, useRef, useEffect } from "react";
 import { Box, Input } from "@axelor/ui";
 import { MaterialIcon } from "@axelor/ui/icons/material-icon";
-import { useAtomValue } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
+import {
+  selectAllVisibleRowsAtom,
+  visibleRowsSelectionStateAtom,
+} from "../selectionAtoms";
 
 interface SelectCellProps {
   rowIndex: number;
@@ -54,18 +58,69 @@ const SelectCell: React.FC<SelectCellProps> = ({
   );
 };
 
+interface SelectAllHeaderProps {
+  visibleRowKeys: any[];
+}
+
 /**
- * Génère les props pour la colonne de sélection ($$select) DevExtreme
+ * Composant pour la checkbox "Select All" dans l'en-tête de la colonne de sélection.
+ * Gère les états checked, unchecked, indeterminate et disabled.
+ */
+export const SelectAllHeader: React.FC<SelectAllHeaderProps> = React.memo(({ visibleRowKeys }) => {
+  // Utilisez l'atom dérivé pour obtenir l'état de sélection des lignes visibles
+  const getVisibleRowsSelectionState = useAtomValue(visibleRowsSelectionStateAtom);
+  const selectionState = getVisibleRowsSelectionState(visibleRowKeys);
+
+  // Utilisez l'atom setter-only pour déclencher la sélection/désélection de toutes les lignes
+  const setSelectAllVisibleRows = useSetAtom(selectAllVisibleRowsAtom);
+
+  const isChecked = selectionState === true;
+  const isIndeterminate = selectionState === null;
+  const isDisabled = visibleRowKeys.length === 0;
+
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const newChecked = e.target.checked;
+    setSelectAllVisibleRows(visibleRowKeys, newChecked);
+  }, [visibleRowKeys, setSelectAllVisibleRows]); // visibleRowKeys est une dépendance ici
+
+  // Utiliser un ref pour gérer l'état `indeterminate` qui n'est pas une prop React standard
+  const checkboxRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (checkboxRef.current) {
+      checkboxRef.current.indeterminate = isIndeterminate;
+    }
+  }, [isIndeterminate]);
+
+  return (
+    <Box d="inline-flex" style={{ justifyContent: "center", alignItems: "center", height: "100%" }}>
+      <Input
+        ref={checkboxRef}
+        type="checkbox"
+        checked={isChecked}
+        onChange={handleChange}
+        disabled={isDisabled}
+        m={0}
+        tabIndex={-1}
+      />
+    </Box>
+  );
+});
+
+/**
+ * Génère les props pour la colonne de sélection ($$select) DevExtreme.
+ * Inclut maintenant la prop headerCellRender pour la checkbox "Select All".
  *
  * Anti-flickering : Les callbacks sont passés via closure (référence stable)
  * et l'état granulaire est géré par atomFamily
  */
 export function getSelectColumnProps(params: {
-  rowSelectionAtomFamily: typeof import('./selectionAtoms').rowSelectionAtomFamily;
+  rowSelectionAtomFamily: typeof import('../selectionAtoms').rowSelectionAtomFamily;
   onToggleSelection: (rowKey: any) => void;
   onRevert: (e: any, rowKey: any) => void;
+  // Nouvelle prop pour le headerCellRender
+  headerCellRender?: (column: any) => React.ReactNode;
 }) {
-  const { rowSelectionAtomFamily, onToggleSelection, onRevert } = params;
+  const { rowSelectionAtomFamily, onToggleSelection, onRevert, headerCellRender } = params;
 
   return {
     dataField: "$$select",
@@ -90,5 +145,7 @@ export function getSelectColumnProps(params: {
         onRevert={onRevert}
       />
     ),
+    // Ajout du headerCellRender
+    headerCellRender: headerCellRender,
   };
 }

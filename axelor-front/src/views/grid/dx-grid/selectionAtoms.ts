@@ -63,3 +63,54 @@ export const toggleRowSelectionAtom = atom(
     set(selectedRowKeysSetAtom, newSelectedSet);
   }
 );
+
+/**
+ * Atom dérivé pour sélectionner/désélectionner toutes les lignes visibles.
+ * Prend en paramètre la liste des clés des lignes actuellement visibles et un booléen (true pour sélectionner, false pour désélectionner).
+ */
+export const selectAllVisibleRowsAtom = atom(
+  null, // Setter-only atom
+  (get, set, visibleRowKeys: any[], select: boolean) => {
+    const prevSelectedSet = get(selectedRowKeysSetAtom);
+    const newSelectedSet = new Set(prevSelectedSet);
+
+    if (select) {
+      visibleRowKeys.forEach(key => newSelectedSet.add(key));
+    } else {
+      visibleRowKeys.forEach(key => newSelectedSet.delete(key));
+    }
+    set(selectedRowKeysSetAtom, newSelectedSet);
+  }
+);
+
+/**
+ * Atom dérivé pour déterminer l'état de la checkbox "Select All" de l'en-tête.
+ * Prend en paramètre la liste des clés des lignes actuellement visibles.
+ * Retourne:
+ * - true si toutes les lignes visibles sont sélectionnées
+ * - false si aucune ligne visible n'est sélectionnée
+ * - null si certaines lignes visibles sont sélectionnées (état indéterminé)
+ */
+export const visibleRowsSelectionStateAtom = atom(
+  (get) => (visibleRowKeys: any[]) => {
+    const selectedSet = get(selectedRowKeysSetAtom);
+    if (visibleRowKeys.length === 0) {
+      return false; // Aucune ligne visible, la checkbox doit être décochée et désactivée
+    }
+
+    let selectedCount = 0;
+    for (const key of visibleRowKeys) {
+      if (selectedSet.has(key)) {
+        selectedCount++;
+      }
+    }
+
+    if (selectedCount === 0) {
+      return false; // Aucune sélection
+    } else if (selectedCount === visibleRowKeys.length) {
+      return true; // Toutes sélectionnées
+    } else {
+      return null; // Indéterminé
+    }
+  }
+);
