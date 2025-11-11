@@ -15,19 +15,70 @@ Ce répertoire contient le code source de la bibliothèque de composants UI util
 ### Sources DevExtreme
 
 **DevExtreme Core (v25.1)** : `C:\Users\nicolasv\DevExtreme-src-25_1\`
-- **Sources TypeScript** : `~/DevExtreme-src-25_1/js/`
-- **DataGrid component** : `~/DevExtreme-src-25_1/js/__internal/grids/data_grid/`
-- **Grid core modules** : `~/DevExtreme-src-25_1/js/__internal/grids/grid_core/` (editing, columns, etc.)
+
+Structure des sources :
+- **Package principal** : `packages/devextreme/js/`
+- **Modules internes** : `packages/devextreme/js/__internal/`
+- **Grid core modules** : `packages/devextreme/js/__internal/grids/grid_core/`
+  - `data_controller/` : Gestion des données et dataSource
+  - `editing/` : Logique d'édition (cell, row, form, batch)
+  - `columns_controller/` : Gestion des colonnes
+  - `focus/` : Gestion du focus
+  - etc.
+- **DataGrid specific** : `packages/devextreme/js/__internal/grids/data_grid/`
 
 **DevExtreme React Wrappers** : `C:\Users\nicolasv\DevExtreme-React\`
 - Composants React qui encapsulent la bibliothèque JavaScript core
 - Chaque composant React (ex: `<DataGrid>`) instancie son équivalent JS (ex: `new dxDataGrid()`)
 
+#### Comment accéder aux sources DevExtreme
+
+Les sources sont dans un monorepo avec structure `packages/`. Pour chercher du code :
+
+```bash
+# Chercher dans les sources du grid core
+Grep({
+  pattern: "saveEditData",
+  path: "C:/Users/nicolasv/DevExtreme-src-25_1/packages/devextreme/js/__internal/grids/grid_core/editing",
+  glob: "*.ts"
+})
+
+# Lire un fichier TypeScript
+Read({
+  file_path: "C:/Users/nicolasv/DevExtreme-src-25_1/packages/devextreme/js/__internal/grids/grid_core/editing/m_editing.ts"
+})
+```
+
+#### Exemple : Problème de reload après save
+
+**Cause racine** : Dans `m_editing.ts` ligne 1838-1850, après un `saveEditData()`, DevExtreme appelle automatiquement `dataController.refresh()` :
+
+```typescript
+private _refreshDataAfterSave(dataChanges, changes, deferred) {
+  const dataController = this._dataController;
+  const refreshMode = this.option('editing.refreshMode');
+  const isFullRefresh = refreshMode !== 'reshape' && refreshMode !== 'repaint';
+
+  if (!isFullRefresh) {
+    dataController.push(dataChanges);
+  }
+
+  when(dataController.refresh({
+    selection: isFullRefresh,
+    reload: isFullRefresh,        // ⚠️ Reload complet si refreshMode non configuré
+    load: refreshMode === 'reshape',
+    changesOnly: this.option('repaintChangesOnly'),
+  }))
+}
+```
+
+**Solution** : Configurer `editing.refreshMode` à `'reshape'` ou `'repaint'` pour éviter le reload complet qui détruit le DOM et perd le focus.
+
 Consulter ces sources pour :
 - Comprendre le comportement interne de DevExtreme DataGrid
 - Déboguer des problèmes liés aux APIs internes
 - Analyser l'implémentation des fonctionnalités (editing, grouping, columns)
-- Vérifier la compatibilité avec la version 25.1.6 utilisée dans le projet
+- Vérifier la compatibilité avec la version 25.1 utilisée dans le projet
 
 ## Modification des vues Axelor
 
@@ -248,70 +299,6 @@ mcp__chrome-devtools__list_network_requests({
 - Récupération précise des logs, erreurs et états de l'application
 - Analyse des requêtes réseau pour déboguer les problèmes d'API
 - Inspection du DOM et de l'état JavaScript en temps réel
-
-## Système de logging persistant
-
-**Utiliser `dxLog()` au lieu de `console.log()` pour un logging avec persistance crash-resistant.**
-
-### Problème résolu
-
-Lorsque le navigateur crash complètement (par exemple lors de bugs dans DevExtreme Grid), tous les logs `console.log` sont perdus. Le système `dxLog` écrit **simultanément** dans la console ET dans **IndexedDB avec `durability: 'strict'`**, forçant l'écriture immédiate sur disque pour maximiser les chances de récupérer les logs même après un crash navigateur complet.
-
-### Fonctions disponibles
-
-```javascript
-// Logger (remplace console.log)
-dxLog("message", { data: "..." })  // Écrit dans console ET IndexedDB avec flush sur disque
-
-// Voir les logs sauvegardés (même si navigateur crash)
-await dxGetLogs()  // Retourne les 1000 derniers logs avec timestamps
-
-// Télécharger un dump JSON
-await dxDownloadLogs()  // Télécharge dx-grid-logs-{timestamp}.json
-
-// Nettoyer les logs
-await dxClearLogs()  // Supprime tous les logs d'IndexedDB
-```
-
-### Implémentation dans le code
-
-```typescript
-// Dans DxGridInner.tsx ou autres composants de debugging
-import { dxLog } from "@/utils/dev-tools";
-
-// Utiliser dxLog au lieu de console.log
-dxLog("[DxGridInner] handleFocusedCellChanging", {
-  event: e.event?.key,
-  prevRow: e.prevRowIndex,
-  newRow: e.newRowIndex
-});
-```
-
-### Caractéristiques
-
-- **Durability strict** : IndexedDB avec `durability: 'strict'` force l'écriture immédiate sur disque physique
-- **Rotation automatique** : Garde les 1000 derniers logs (configurable via `MAX_LOG_ENTRIES`)
-- **Timestamps** : Chaque log est horodaté en ISO 8601
-- **Sérialisation** : Les objets sont automatiquement sérialisés en JSON
-- **Fallback gracieux** : Si IndexedDB échoue, continue de logger dans console
-- **Sortie double** : Visible dans DevTools ET persisté sur disque dur
-- **Performance** : Asynchrone, ne bloque pas l'interface utilisateur
-
-### Workflow de debugging après crash
-
-1. Le navigateur crash complètement pendant les tests
-2. Redémarrer le navigateur et ouvrir DevTools
-3. Récupérer les logs : `await dxGetLogs()` ou `await dxDownloadLogs()`
-4. Analyser le dump JSON pour comprendre ce qui s'est passé avant le crash
-
-### Avantages
-
-- **Survie aux crashes navigateur** : Les logs survivent même aux crashes complets du navigateur grâce à IndexedDB
-- **Flush immédiat** : `durability: 'strict'` garantit l'écriture physique sur disque avant de continuer
-- **Post-mortem debugging** : Analyse complète de ce qui s'est passé avant le crash
-- **Export facile** : Téléchargement JSON pour analyse externe ou partage
-- **Zero configuration** : Disponible automatiquement en mode développement
-- **Non-intrusif** : Même comportement que console.log dans DevTools
 
 ## Consultation de la documentation officielle
 

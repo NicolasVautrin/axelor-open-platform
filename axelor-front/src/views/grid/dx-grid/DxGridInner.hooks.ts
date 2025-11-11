@@ -211,6 +211,22 @@ interface UseHandleOptionChangedParams {
  */
 export function useHandleOptionChanged({ setHasGrouping, triggerSearch, setGridState }: UseHandleOptionChangedParams) {
   return useCallback((e: any) => {
+    // Logger TOUS les événements onOptionChanged pour debugging
+    // dxLog("[useHandleOptionChanged] Event received:", {
+    //   name: e.name,
+    //   fullName: e.fullName,
+    //   value: e.value,
+    //   previousValue: e.previousValue,
+    // });
+
+    // Logger les changeTypes pour les événements columns (pour comprendre les reloads)
+    // if (e.name === "columns" && e.component) {
+    //   const columnsController = e.component.getController?.("columns");
+    //   if (columnsController && columnsController._changeTypes) {
+    //     dxLog("[useHandleOptionChanged] ⚠️ COLUMNS changeTypes:", columnsController._changeTypes);
+    //   }
+    // }
+
     // Détecter les changements de groupement
     if (e.name === "columns" && e.fullName?.includes("groupIndex")) {
       // Vérifier s'il y a des colonnes groupées
@@ -277,96 +293,105 @@ export function useHandleOptionChanged({ setHasGrouping, triggerSearch, setGridS
   }, [triggerSearch, setGridState, setHasGrouping]);
 }
 
-interface UseHandleSavingParams {
-  dataStore: any;
-  fieldsToFetch: string[];
-  records: DataRecord[];
-  onSavingCompleteRef: React.MutableRefObject<(() => void) | null>;
+interface UseHandleEditingTabNavigationParams {
   dataGridRef: any;
 }
 
 /**
- * Hook pour gérer la sauvegarde des modifications (mode batch editing)
+ * Hook pour gérer la navigation Tab/Shift+Tab dans une ligne en édition
+ * Permet de boucler entre les colonnes éditables de la ligne courante
  */
-export function useHandleSaving({ dataStore, fieldsToFetch, records, onSavingCompleteRef, dataGridRef }: UseHandleSavingParams) {
+export function useHandleEditingTabNavigation({ dataGridRef }: UseHandleEditingTabNavigationParams) {
   return useCallback((e: any) => {
-    e.cancel = true; // Annuler la sauvegarde par défaut de DevExtreme
-    dxLog("[DxGridInner] handleSaving - e.component available:", !!e.component);
+    // Vérifier si c'est un événement Tab
+    const isTabKey = e.event?.keyCode === 9 || e.event?.key === 'Tab';
+    if (!isTabKey) return;
 
-    // En mode batch, e.changes contient toutes les modifications
-    const changes = e.changes || [];
-    dxLog("[DxGridInner] handleSaving - number of changes:", changes.length);
+    dxLog("[DxGridInner] handleEditingTabNavigation - e.component available:", !!e.component);
+    const gridInstance = e.component || getGridInstance(dataGridRef);
+    if (!gridInstance) return;
 
-    // Créer et stocker la Promise de sauvegarde
-    const savingPromise = (async () => {
-      try {
-      // Traiter chaque modification
-      for (let i = 0; i < changes.length; i++) {
-        const change = changes[i];
-          dxLog(`[DxGridInner] Processing change ${i + 1}/${changes.length}`, change.type);
+    // Vérifier si on est en mode édition de ligne (API publique DevExtreme 25.1)
+    const editRowKey = gridInstance.option('editing.editRowKey');
+    if (editRowKey === undefined || editRowKey === null) {
+      dxLog("[DxGridInner] No row in edit mode, ignoring Tab");
+      return;
+    }
 
-          if (change.type === 'insert' || change.type === 'update') {
-            let recordToSave: any;
+    // Récupérer toutes les colonnes visibles et éditables
+    const visibleColumns = e.columns || gridInstance.getVisibleColumns();
+    if (!visibleColumns || !Array.isArray(visibleColumns)) {
+      dxLog("[DxGridInner] No visible columns, ignoring Tab");
+      return;
+    }
 
-            if (change.type === 'insert') {
-              // Pour un insert, change.data contient toutes les données de la nouvelle ligne
-              recordToSave = { ...change.data };
-              dxLog("[DxGridInner] Insert - new record data:", recordToSave);
-            } else {
-              // Pour un update, fusionner avec le record original
-              const recordKey = typeof change.key === 'object' ? change.key : { id: change.key };
+    const editableColumns = visibleColumns.filter((col: any) =>
+      col.allowEditing && col.visible && !col.dataField?.startsWith('$')
+    );
 
-              // Trouver le record original complet dans la source de données
-              const originalRecord = records.find((r: any) => {
-                if (recordKey.cid !== undefined) {
-                  return r.cid === recordKey.cid;
-                }
-                return r.id === recordKey.id;
-              });
+    if (editableColumns.length === 0) {
+      dxLog("[DxGridInner] No editable columns, ignoring Tab");
+      return;
+    }
 
-              if (!originalRecord) {
-                console.error("[DxGridInner] Original record not found", recordKey);
-                continue;
-              }
+    // Vérifier que prevColumnIndex est valide
+    if (e.prevColumnIndex === undefined || e.prevColumnIndex === null || e.prevColumnIndex < 0 || e.prevColumnIndex >= visibleColumns.length) {
+      dxLog("[DxGridInner] Invalid prevColumnIndex:", e.prevColumnIndex);
+      return;
+    }
 
-              recordToSave = { ...originalRecord, ...change.data };
-              dxLog("[DxGridInner] Update - merged record:", recordToSave);
-            }
+    // Trouver l'index de la colonne actuelle parmi les colonnes éditables
+    const currentColumn = visibleColumns[e.prevColumnIndex];
+    if (!currentColumn) {
+      dxLog("[DxGridInner] No current column at index:", e.prevColumnIndex);
+      return;
+    }
 
-            // IMPORTANT : Retirer l'ID négatif pour les nouvelles lignes (système Axelor)
-            // Axelor utilise des IDs négatifs (-1, -2, -3...) pour les nouvelles lignes non sauvegardées
-            // Le backend génèrera un ID positif réel lors de la sauvegarde
-            if (isNewRecord(recordToSave)) {
-              dxLog("[DxGridInner] Removing negative ID before save:", recordToSave.id);
-              delete recordToSave.id;
-            }
+    const currentEditableIdx = editableColumns.findIndex(
+      (col: any) => col.dataField === currentColumn.dataField
+    );
 
-            // Sauvegarder via le dataStore Axelor
-            dxLog("[DxGridInner] Calling dataStore.save with:", recordToSave);
-            await dataStore.save(recordToSave);
-            dxLog("[DxGridInner] Record saved successfully");
-          }
-        }
+    if (currentEditableIdx === -1) {
+      dxLog("[DxGridInner] Current column is not editable:", currentColumn.dataField);
+      return;
+    }
 
-        dxLog("[DxGridInner] All changes processed, total:", changes.length);
-      } catch (error) {
-        console.error("[DxGridInner] Error saving changes", error);
-      } finally {
-        // Nettoyer l'état des modifications DevExtreme après avoir ouvert la nouvelle ligne
-        // pour ne pas perdre le focus
-        const gridInstance = e.component || getGridInstance(dataGridRef);
-        if (gridInstance) {
-          gridInstance.cancelEditData();
-          dxLog("[DxGridInner] cancelEditData called");
-        }
+    // Calculer la prochaine colonne éditable
+    const isShiftPressed = e.event?.shiftKey;
+    let nextEditableIdx;
 
-        // Appeler le callback de completion s'il existe (pattern observer)
-        if (onSavingCompleteRef.current) {
-          dxLog("[DxGridInner] Calling onSavingComplete callback");
-          onSavingCompleteRef.current();
-          onSavingCompleteRef.current = null;
-        }
+    if (isShiftPressed) {
+      // Shift+Tab : aller à la colonne éditable précédente
+      nextEditableIdx = currentEditableIdx - 1;
+      if (nextEditableIdx < 0) {
+        // Boucler vers la dernière colonne éditable
+        nextEditableIdx = editableColumns.length - 1;
       }
-    })();
-  }, [dataStore, fieldsToFetch, records, onSavingCompleteRef, dataGridRef]);
+    } else {
+      // Tab : aller à la colonne éditable suivante
+      nextEditableIdx = currentEditableIdx + 1;
+      if (nextEditableIdx >= editableColumns.length) {
+        // Boucler vers la première colonne éditable
+        nextEditableIdx = 0;
+      }
+    }
+
+    const nextColumn = editableColumns[nextEditableIdx];
+
+    if (!nextColumn) {
+      dxLog("[DxGridInner] No next column at editableIdx:", nextEditableIdx);
+      return;
+    }
+
+    if (nextColumn.visibleIndex === undefined || nextColumn.visibleIndex === null) {
+      dxLog("[DxGridInner] Next column has no visibleIndex:", nextColumn.dataField);
+      return;
+    }
+
+    dxLog("[DxGridInner] Tab navigation: from", currentColumn.dataField, "to", nextColumn.dataField);
+
+    // Modifier les index pour naviguer vers la prochaine colonne éditable dans la MÊME ligne
+    e.newRowIndex = e.prevRowIndex; // IMPORTANT: toujours rester dans la même ligne
+    e.newColumnIndex = nextColumn.visibleIndex;
+  }, [dataGridRef]);
 }
