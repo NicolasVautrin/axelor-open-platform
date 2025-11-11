@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Box } from "@axelor/ui";
+import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from "react";
+import { Box, Input } from "@axelor/ui";
 import { GridRow, GridState, getRows } from "@axelor/ui/grid";
+import { atom, useAtom, useSetAtom, useAtomValue } from "jotai";
 import DataGrid, {
   Column,
   ColumnFixing,
@@ -14,7 +15,6 @@ import DataGrid, {
   Paging,
   Scrolling,
   SearchPanel,
-  Selection,
   Sorting,
   StateStoring,
   Summary,
@@ -28,6 +28,11 @@ import frMessages from "devextreme/localization/messages/fr.json";
 import { ViewProps } from "@/views/types";
 import { SearchOptions } from "@/services/client/data";
 import { GridView, Field } from "@/services/client/meta.types";
+import { dxLog } from "@/utils/dev-tools";
+import { getStandardColumnProps } from "./columns/StandardColumn";
+import { getEditColumnProps } from "./columns/EditColumn";
+import { getSelectColumnProps } from "./columns/SelectColumn";
+import { rowSelectionAtomFamily, clearAllSelectionsAtom, toggleRowSelectionAtom } from "./selectionAtoms";
 import { DataRecord } from "@/services/client/data.types";
 import { i18n } from "@/services/client/i18n";
 import { Icon } from "@/components/icon";
@@ -38,7 +43,6 @@ import { parseExpression } from "@/hooks/use-parser/utils";
 import { useViewAction } from "@/view-containers/views/scope";
 import { useActionExecutor } from "@/views/form/builder/scope";
 import { createFormAtom } from "@/views/form/builder/atoms";
-import { Cell } from "@/views/grid/renderers/cell/cell";
 import { legacyClassNames } from "@/styles/legacy";
 import { toKebabCase } from "@/utils/names";
 import {
@@ -47,7 +51,11 @@ import {
   getEffectiveWidget,
   mapAxelorTypeToDevExtreme as mapTypeToDevExtreme,
   getFieldsToFetch,
+  getGridInstance,
+  nextId,
+  isNewRecord,
 } from "./dx-grid-utils";
+import { useDxColumns, useTriggerSearch, useHandleOptionChanged, useHandleSaving } from "./DxGridInner.hooks";
 import { convertDxFilterToAxelor } from "./dx-filter-converter";
 import { useGridState } from "../builder/utils";
 import { useCustomizePopup } from "../builder/customize";
@@ -63,6 +71,10 @@ interface DxGridInnerProps extends ViewProps<GridView> {
   setState: (updater: (draft: GridState) => void) => void;
 }
 
+export interface DxGridHandle {
+  onAdd: () => void;
+}
+
 /**
  * Composant DevExtreme Grid pour Axelor
  *
@@ -73,7 +85,7 @@ interface DxGridInnerProps extends ViewProps<GridView> {
  * - Expandable (avec MasterDetail)
  * - Tree-grid (avec MasterDetail récursif)
  */
-export default function DxGridInner(props: DxGridInnerProps) {
+const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps,>(function DxGridInner(props, ref) {
   const { meta, dataStore, onSearch, searchOptions, onEdit, state, setState } = props;
   const view = meta.view;
   const fields = meta.fields || {};
@@ -81,6 +93,13 @@ export default function DxGridInner(props: DxGridInnerProps) {
 
   // Ref pour accéder à l'instance DevExtreme DataGrid
   const dataGridRef = useRef<DxDataGrid>(null);
+
+  // OPTIMISATION ANTI-FLICKERING avec atomFamily :
+  // Chaque ligne a son propre atom, seules les lignes dont l'état change re-rendent
+  // IMPORTANT : Ne PAS lire selectedRowsListAtom ici car cela cause un re-render à chaque changement de sélection
+  // Les actions (export, delete) liront l'atom directement au moment de l'action
+  const toggleRowSelection = useSetAtom(toggleRowSelectionAtom);
+  const setClearAllSelections = useSetAtom(clearAllSelectionsAtom);
 
   // FormAtom pour l'exécuteur d'actions
   const formAtom = useMemo(
@@ -93,7 +112,7 @@ export default function DxGridInner(props: DxGridInnerProps) {
   );
 
   // Context pour l'exécuteur d'actions
-  const getContext = useCallback(() => context, [context]);
+  const getContext = useCallback(() => context || {}, [context]);
 
   // Exécuteur d'actions pour les button fields
   const actionExecutor = useActionExecutor(view, {
@@ -105,7 +124,6 @@ export default function DxGridInner(props: DxGridInnerProps) {
   // Fonction onUpdate pour les widgets (pour l'instant vide, sera utilisé pour l'édition)
   const onUpdate = useCallback((record: DataRecord) => {
     // TODO: Implémenter la mise à jour des records si besoin
-    console.log("[DxGrid] onUpdate called", record);
     return Promise.resolve(record);
   }, []);
 
@@ -126,6 +144,8 @@ export default function DxGridInner(props: DxGridInnerProps) {
       rows: rowsRef.current,
       columns: [],
       records: dataStore.records,
+      orderBy: null,
+      groupBy: null,
     });
     rowsRef.current = initialRows;
 
@@ -141,6 +161,8 @@ export default function DxGridInner(props: DxGridInnerProps) {
           rows: rowsRef.current,
           columns: [],
           records: ds.records,
+          orderBy: null,
+          groupBy: null,
         });
         rowsRef.current = gridRows;
 
@@ -208,31 +230,12 @@ export default function DxGridInner(props: DxGridInnerProps) {
         }
       });
 
-    // Ajouter les champs référencés dans les hilites
-    (view.hilites || []).forEach((hilite) => {
-      if (hilite.condition) {
-        // Extraire les noms de champs de la condition (regex simple pour identifier les identifiants)
-        const matches = hilite.condition.match(/[a-zA-Z_][a-zA-Z0-9_.]*/g);
-        if (matches) {
-          matches.forEach((match) => {
-            // Ignorer les opérateurs et mots clés
-            if (!['true', 'false', 'null', 'undefined', 'and', 'or', 'not', 'eq', 'ne', 'gt', 'lt', 'gte', 'lte'].includes(match.toLowerCase())) {
-              if (!fieldNames.includes(match)) {
-                fieldNames.push(match);
-              }
-            }
-          });
-        }
-      }
-    });
-
     return fieldNames;
   }, [view.items, view.hilites, fields]);
 
   // Déclencher la recherche initiale au montage
   useEffect(() => {
     if (onSearch && dataStore.records.length === 0) {
-      console.log("[DxGridInner] Triggering initial search with fields", fieldsToFetch);
       onSearch({ fields: fieldsToFetch });
     }
   }, [onSearch, dataStore, fieldsToFetch]);
@@ -240,7 +243,6 @@ export default function DxGridInner(props: DxGridInnerProps) {
   // Déclencher la recherche quand searchOptions change (pagination)
   useEffect(() => {
     if (onSearch && searchOptions) {
-      console.log("[DxGridInner] searchOptions changed, triggering search", searchOptions);
       onSearch({ ...searchOptions, fields: fieldsToFetch });
     }
   }, [searchOptions, onSearch, fieldsToFetch]);
@@ -258,287 +260,49 @@ export default function DxGridInner(props: DxGridInnerProps) {
   }, [view.groupBy]);
 
   // Mapper les colonnes Axelor vers DevExtreme (fields ET buttons dans l'ordre de la vue)
-  const columns = useMemo(() => {
-    // Créer une map pour une recherche rapide des propriétés de colonne dans gridState
-    const gridStateColumnMap = new Map();
-    (gridState.columns || []).forEach(col => {
-      if (col.name) {
-        gridStateColumnMap.set(col.name, col);
-      }
-    });
-
-    return (view.items || [])
-      .filter((item): item is Field => "name" in item && item.name !== undefined)
-      .map((field, index) => {
-        // Récupérer les propriétés sauvegardées dans gridState, sinon utiliser celles de view.items
-        const savedColumnState = gridStateColumnMap.get(field.name);
-
-        // Si c'est un button field, retourner une configuration de colonne button
-        if (field.widget === "button" || field.type === "button") {
-          // Utiliser la largeur sauvegardée, sinon celle définie dans le XML, sinon 40 par défaut
-          const buttonWidth = savedColumnState?.width ? parseInt(String(savedColumnState.width)) : (field.width ? parseInt(String(field.width)) : 40);
-          return {
-            isButton: true,
-            button: field,
-            // Utiliser dataField avec un préfixe spécial pour les buttons
-            dataField: `$button_${field.name || field.title || index}`,
-            caption: "", // Pas d'en-tête pour les buttons
-            width: buttonWidth,
-            minWidth: buttonWidth,
-            maxWidth: buttonWidth,
-            visible: savedColumnState?.visible !== undefined ? savedColumnState.visible : !field.hidden,
-            visibleIndex: savedColumnState?.visibleIndex !== undefined ? savedColumnState.visibleIndex : index,
-            allowSorting: false,
-            allowFiltering: false,
-            allowGrouping: false,
-            allowHiding: false,
-            allowReordering: true,
-            alignment: "center", // Centrer le contenu
-            calculateCellValue: () => true, // Retourner true pour que la colonne existe
-          };
-        }
-
-        // Sinon, c'est un field normal
-        // Pour les champs pointés (ex: "user.name"), prendre la partie avant le point
-        const fieldName = field.name.includes('.') ? field.name.split('.')[0] : field.name;
-        const fieldMeta = fields[fieldName];
-        const widget = getEffectiveWidget(field, fieldMeta);
-        const dataType = mapTypeToDevExtreme(widget, fieldMeta);
-
-        // Déterminer groupIndex (préférer l'état sauvegardé, puis view.groupBy)
-        let groupIndex = savedColumnState?.groupIndex !== undefined
-          ? savedColumnState.groupIndex
-          : groupByFields.indexOf(field.name);
-        if (groupIndex < 0) groupIndex = undefined; // S'assurer que c'est undefined si non groupé
-
-        // Pour les sélections : préparer le lookup avec toutes les valeurs possibles
-        let lookup = undefined;
-        if (fieldMeta?.selectionList && Array.isArray(fieldMeta.selectionList)) {
-          console.log(`[DxGridInner] Selection list for ${field.name}:`, fieldMeta.selectionList);
-          lookup = {
-            dataSource: fieldMeta.selectionList.map((item: any) => ({
-              value: parseInt(item.value, 10), // Convertir en nombre
-              text: item.title || item.data?.title || String(item.value),
-            })),
-            valueExpr: "value",
-            displayExpr: "text",
-          };
-        }
-
-        // Pour les colonnes normales, utiliser la largeur sauvegardée en priorité
-        const columnWidth = savedColumnState?.width ? parseInt(String(savedColumnState.width)) : (field.width ? parseInt(String(field.width)) : undefined);
-        const columnMinWidth = 100; // COLUMN_MIN_WIDTH par défaut comme Axelor
-
-        return {
-          isButton: false,
-          field,
-          fieldMeta,
-          dataField: field.name,
-          caption: field.title || fieldMeta?.title || field.name,
-          width: columnWidth,
-          minWidth: columnMinWidth,
-          visible: savedColumnState?.visible !== undefined ? savedColumnState.visible : !field.hidden,
-          visibleIndex: savedColumnState?.visibleIndex !== undefined ? savedColumnState.visibleIndex : index,
-          // UI de tri/filtre activée mais traitement server-side via Axelor
-          allowSorting: field.sortable !== false,
-          allowFiltering: true,
-          dataType,
-          widget,
-          // Appliquer le groupIndex si nécessaire
-          groupIndex: groupIndex,
-          // Lookup pour les sélections
-          lookup,
-          // Fonction pour extraire la valeur (gère M2O avec targetName)
-          calculateCellValue: (rowData: DataRecord) => {
-            // Pour les colonnes avec lookup, retourner la valeur brute (pas la traduction)
-            if (lookup) {
-              return rowData[field.name];
-            }
-            return getDxCellValue(rowData, field, fieldMeta);
-          },
-          // Fonction pour formater la valeur
-          customizeText: !lookup ? (cellInfo: any) => {
-            if (cellInfo.value === null || cellInfo.value === undefined) {
-              return "";
-            }
-
-            // Pour les M2O : la valeur est déjà formatée par calculateCellValue
-            // (c'est le targetName en tant que string)
-            const isM2O =
-              fieldMeta?.type === "MANY_TO_ONE" ||
-              fieldMeta?.type === "ONE_TO_ONE";
-
-            if (isM2O && typeof cellInfo.value === "string") {
-              return cellInfo.value;
-            }
-
-            return formatDxCellValue(cellInfo.value, field, fieldMeta, cellInfo.data);
-          } : undefined,
-        };
-      });
-  }, [view.items, fields, groupByFields, gridState.columns]);
-
-
+  const columns = useDxColumns({
+    view,
+    fields,
+    groupByFields,
+    gridStateColumns: gridState.columns,
+  });
+  
   // Utiliser directement les records du DataStore Axelor
   // La pagination est gérée par le composant de pagination Axelor (externe)
   // Initialiser avec les records existants (la recherche peut être déjà faite)
   const [records, setRecords] = useState<DataRecord[]>(dataStore.records);
 
   // S'abonner aux changements du dataStore (comme GridInner)
+  // OPTIMISATION : Ne mettre à jour que si la référence a changé pour éviter les re-renders inutiles
+  const recordsRefForComparison = useRef<DataRecord[]>(dataStore.records);
   useEffect(
     () =>
       dataStore.subscribe((ds) => {
-        console.log("[DxGridInner] DataStore updated", {
-          totalCount: ds.page.totalCount,
-          records: ds.records.length,
-        });
-        setRecords(ds.records);
+        // Ne mettre à jour que si la référence a changé
+        if (ds.records !== recordsRefForComparison.current) {
+          recordsRefForComparison.current = ds.records;
+          setRecords(ds.records);
+        }
       }),
     [dataStore],
   );
 
-  // Gestion de la sélection
-  const selectionMode = view.selector === "checkbox" ? "multiple" : "none";
+  const editingRowKeyRef = useRef<any>(null);
+
+  // Callback à appeler quand le saving est terminé
+  const onSavingCompleteRef = useRef<(() => void) | null>(null);
+
+  // Gestion de la sélection - Par défaut les checkboxes sont activées sauf si selector="none"
+  const selectionMode = view.selector === "none" ? "none" : "multiple";
 
   // État pour savoir si des colonnes sont groupées
   const [hasGrouping, setHasGrouping] = useState<boolean>(groupByFields.length > 0);
 
-  // Ref pour éviter les appels en boucle
-  const isSearchingRef = useRef(false);
-
   // Fonction pour déclencher une recherche avec tri/filtre
-  const triggerSearch = useCallback(async (options: {
-    sortBy?: string[];
-    filter?: any;
-  }) => {
-    if (isSearchingRef.current) {
-      console.log("[DxGridInner] Search already in progress, skipping");
-      return;
-    }
-
-    try {
-      isSearchingRef.current = true;
-
-      const searchOptions: any = {
-        ...dataStore.options,
-        fields: fieldsToFetch,
-      };
-
-      // Appliquer le tri (y compris si vide pour effacer le tri)
-      if (options.sortBy !== undefined) {
-        searchOptions.sortBy = options.sortBy;
-      }
-
-      // Appliquer le filtre
-      if (options.filter) {
-        const axelorCriteria = convertDxFilterToAxelor(options.filter);
-        if (axelorCriteria) {
-          searchOptions.filter = {
-            ...(searchOptions.filter || {}),
-            ...axelorCriteria,
-          };
-        }
-      }
-
-      console.log("[DxGridInner] Triggering search with", searchOptions);
-
-      // Appeler le dataStore
-      await dataStore.search(searchOptions);
-    } catch (error) {
-      console.error("[DxGridInner] Search error", error);
-    } finally {
-      isSearchingRef.current = false;
-    }
-  }, [dataStore, fieldsToFetch]);
+  const triggerSearch = useTriggerSearch({ dataStore, fieldsToFetch });
 
   // Intercepter les changements de tri et de groupement
-  const handleOptionChanged = useCallback((e: any) => {
-    // Détecter les changements de groupement
-    if (e.name === "columns" && e.fullName?.includes("groupIndex")) {
-      console.log("[DxGridInner] Grouping changed", e);
-
-      // Vérifier s'il y a des colonnes groupées
-      const groupedColumns = e.component.getVisibleColumns()
-        .filter((col: any) => col.groupIndex !== undefined);
-
-      setHasGrouping(groupedColumns.length > 0);
-    }
-
-    // Détecter les changements de tri
-    if (e.name === "columns" && e.fullName?.includes("sortOrder")) {
-      console.log("[DxGridInner] Sort changed", e);
-
-      // Récupérer les colonnes triées
-      const sortedColumns = e.component.getVisibleColumns()
-        .filter((col: any) => col.sortOrder)
-        .sort((a: any, b: any) => (a.sortIndex || 0) - (b.sortIndex || 0));
-
-      if (sortedColumns.length > 0) {
-        const sortBy = sortedColumns.map((col: any) =>
-          `${col.sortOrder === 'desc' ? '-' : ''}${col.dataField}`
-        );
-
-        console.log("[DxGridInner] Transmit sort to Axelor", sortBy);
-
-        // Transmettre le tri à Axelor
-        triggerSearch({ sortBy });
-      } else {
-        // Aucun tri : effacer le tri en passant un tableau vide
-        console.log("[DxGridInner] Clear sort");
-        triggerSearch({ sortBy: [] });
-      }
-    }
-
-    // Synchroniser l'état des colonnes DevExtreme avec gridState Axelor
-    // Détecter les changements de colonnes (largeur, visibilité, ordre, groupIndex)
-    if (e.name === "columns" || e.fullName?.includes("width") || e.fullName?.includes("visible") || e.fullName?.includes("visibleIndex") || e.fullName?.includes("groupIndex")) {
-      const dxGridInstance = e.component;
-      // getVisibleColumns() renvoie les colonnes dans leur ordre actuel et avec leur état visible
-      const currentDxColumns = dxGridInstance.getVisibleColumns();
-
-      const updatedColumns = currentDxColumns.map((dxCol: any) => {
-        // Mapper les propriétés de colonne DevExtreme au format attendu par GridColumn Axelor
-        // GridColumn attend width en number, pas en string
-        return {
-          name: dxCol.dataField,
-          width: dxCol.width, // Garder en number comme attendu par GridColumn
-          visible: dxCol.visible,
-          computed: true, // Marquer comme "calculé" pour le système de sauvegarde Axelor
-        };
-      });
-
-      setGridState((draft) => {
-        const existingAxelorColumns = draft.columns || [];
-        // Comparaison simplifiée pour éviter des mises à jour inutiles et des boucles infinies
-        const hasChanges = updatedColumns.some((newCol, index) => {
-          const oldCol = existingAxelorColumns[index];
-          return !oldCol ||
-                 oldCol.name !== newCol.name ||
-                 oldCol.width !== newCol.width ||
-                 oldCol.visible !== newCol.visible;
-        });
-
-        if (hasChanges) {
-          console.log("[DxGridInner] Updating Axelor gridState with DevExtreme column changes", updatedColumns);
-          draft.columns = updatedColumns;
-        }
-      });
-    }
-  }, [triggerSearch, setGridState]);
-
-  // Intercepter les changements de filtres
-  const handleContentReady = useCallback((e: any) => {
-    // TODO: Implémenter la détection de changement de filtre
-    // Pour l'instant désactivé car déclenché trop tôt
-
-    // Les filtres DevExtreme sont accessibles via e.component.getCombinedFilter()
-    // const filter = e.component.getCombinedFilter();
-    // if (filter) {
-    //   console.log("[DxGridInner] Filter changed", filter);
-    //   // Convertir et transmettre à Axelor
-    //   triggerSearch({ filter });
-    // }
-  }, [triggerSearch]);
+  const handleOptionChanged = useHandleOptionChanged({ setHasGrouping, triggerSearch, setGridState });
 
   // Personnaliser le menu contextuel des colonnes
   const handleContextMenuPreparing = useCallback((e: any) => {
@@ -615,36 +379,234 @@ export default function DxGridInner(props: DxGridInnerProps) {
     }
   }, [fieldHilitesMap, context]);
 
-  // Gérer les changements de sélection
-  const handleSelectionChanged = useCallback((e: any) => {
-    const selectedRowKeys = e.selectedRowKeys || [];
+  // Gérer la sauvegarde des modifications (mode batch editing)
+  const handleSaving = useHandleSaving({ dataStore, fieldsToFetch, records, onSavingCompleteRef, dataGridRef });
 
-    // Convertir les IDs en indices de lignes
-    const selectedIndices = selectedRowKeys
-      .map((id: number) => state.rows.findIndex(row => row.record.id === id))
-      .filter((index: number) => index !== -1);
+  // Synchroniser l'état des lignes modifiées en mode batch
+  const onRowUpdated = useCallback((e: any) => {
+    dxLog("[DxGridInner] onRowUpdated", e);
+  }, []);
 
-    // Mettre à jour le state Axelor
-    setState((draft) => {
-      draft.selectedRows = selectedIndices.length > 0 ? selectedIndices : null;
+  // Gérer l'annulation des modifications d'une ligne
+  const handleRevert = useCallback((e: any, key: any) => {
+    e.event?.stopPropagation();
+    const gridInstance = getGridInstance(dataGridRef);
+    gridInstance?.cancelEditData();
+  }, []);
+
+  // Gérer le toggle de sélection d'une ligne
+  const handleToggleSelection = useCallback((rowKey: any) => {
+    // OPTIMISATION ANTI-FLICKERING avec atomFamily :
+    // Toggle l'état de sélection de cette ligne via l'atom dédié
+    // Seul l'atom de cette ligne sera mis à jour, évitant le re-render des autres lignes
+    toggleRowSelection(rowKey);
+  }, [toggleRowSelection]);
+
+  // Gérer le clic sur une cellule pour démarrer l'édition en mode row
+  // Nécessaire car cellRender custom empêche startEditAction="click" de fonctionner automatiquement
+  const handleCellClick = useCallback(async (e: any) => {
+    if (e.rowType !== 'data' || e.key === undefined || e.key === null) {
+      return;
+    }
+
+    // Ignorer les clics sur les colonnes système ($select, $edit) et boutons
+    if (e.column?.dataField?.startsWith('$')) return;
+
+    // Vérifier si la colonne est éditable
+    if (!e.column?.allowEditing) {
+      dxLog("[DxGridInner] Column not editable:", e.column?.dataField);
+      return;
+    }
+
+    dxLog("[DxGridInner] handleCellClick - e.component available:", !!e.component);
+    const gridInstance = e.component || getGridInstance(dataGridRef);
+    if (!gridInstance) return;
+
+    // Vérifier s'il y a une ligne en cours d'édition
+    const currentEditingKey = gridInstance.option('editing.editRowKey');
+    const isSwitchingRow = currentEditingKey !== undefined &&
+                           currentEditingKey !== null &&
+                           currentEditingKey !== e.key;
+
+    dxLog("[DxGridInner] currentEditingKey:", currentEditingKey, "newKey:", e.key, "isSwitchingRow:", isSwitchingRow);
+
+    // Si on clique sur une autre ligne et qu'une ligne est en édition
+    if (isSwitchingRow) {
+      dxLog("[DxGridInner] ✓ Switching rows - Saving current row before switching to new row");
+
+      // Créer une Promise qui sera résolue quand la sauvegarde sera terminée
+      const savingPromise = new Promise<void>((resolve) => {
+        onSavingCompleteRef.current = () => {
+          dxLog("[DxGridInner] onSavingComplete - Save completed");
+          resolve(); // Résoudre la Promise pour indiquer que la sauvegarde est terminée
+        };
+      });
+
+      // Déclencher la sauvegarde de l'ancienne ligne
+      gridInstance.saveEditData();
+
+      // Attendre que la sauvegarde soit terminée (y compris cancelEditData)
+      await savingPromise;
+
+      // Maintenant ouvrir la nouvelle ligne
+      dxLog("[DxGridInner] Opening new row after save completed:", e.key);
+      gridInstance.option('editing.editRowKey', e.key);
+    } else {
+      // Pas de switch, ouvrir directement (le focus fonctionne naturellement)
+      gridInstance.option('editing.editRowKey', e.key);
+    }
+  }, []);
+
+  // Gérer le début de l'édition d'une ligne
+  const handleEditingStart = useCallback((e: any) => {
+    const newEditingKey = e.key;
+
+    dxLog("[DxGridInner] handleEditingStart - row entering edit mode", newEditingKey);
+
+    // Tracker la ligne en édition pour la sauvegarde automatique
+    editingRowKeyRef.current = newEditingKey;
+  }, []);
+
+  // Gérer le début de l'édition d'une ligne
+  const handleOnSaved = useCallback((e: any) => {
+    dxLog("[DxGridInner] handleOnSaved", e);
+  }, []);
+
+  // Gérer la fin de l'édition d'une ligne
+  const handleEditingEnd = useCallback((e: any) => {
+    dxLog("[DxGridInner] handleEditingEnd - row exiting edit mode", e);
+    editingRowKeyRef.current = null;
+  }, []);
+
+  // Gérer la préparation des éditeurs pour notifier le grid des changements
+  const handleEditorPreparing = useCallback((e: any) => {
+
+  }, []);
+
+  // Gérer l'initialisation d'une nouvelle ligne (utilise le système d'IDs négatifs Axelor)
+  const handleInitNewRow = useCallback((e: any) => {
+    // Définir un ID négatif comme Axelor le fait avec nextId()
+    // Cela évite que DevExtreme génère ses propres clés temporaires (_DX_KEY_...)
+    const newId = nextId();
+    e.data.id = newId;
+
+    dxLog("[DxGridInner] handleInitNewRow - assigned negative ID:", newId);
+  }, []);
+
+  // Gérer la touche Tab pour boucler dans la ligne actuelle en mode édition
+  const handleFocusedCellChanging = useCallback((e: any) => {
+    // Vérifier si c'est un événement Tab
+    const isTabKey = e.event?.keyCode === 9 || e.event?.key === 'Tab';
+    if (!isTabKey) return;
+
+    dxLog("[DxGridInner] handleFocusedCellChanging - e.component available:", !!e.component);
+    const gridInstance = e.component || getGridInstance(dataGridRef);
+    if (!gridInstance) return;
+
+    // Vérifier si on est en mode édition de ligne (API publique DevExtreme 25.1)
+    const editRowKey = gridInstance.option('editing.editRowKey');
+    if (editRowKey === undefined || editRowKey === null) {
+      dxLog("[DxGridInner] No row in edit mode, ignoring Tab");
+      return;
+    }
+
+    // Récupérer toutes les colonnes visibles et éditables
+    const visibleColumns = e.columns || gridInstance.getVisibleColumns();
+    if (!visibleColumns || !Array.isArray(visibleColumns)) {
+      dxLog("[DxGridInner] No visible columns, ignoring Tab");
+      return;
+    }
+
+    const editableColumns = visibleColumns.filter((col: any) =>
+      col.allowEditing && col.visible && !col.dataField?.startsWith('$')
+    );
+
+    if (editableColumns.length === 0) {
+      dxLog("[DxGridInner] No editable columns, ignoring Tab");
+      return;
+    }
+
+    // Vérifier que prevColumnIndex est valide
+    if (e.prevColumnIndex === undefined || e.prevColumnIndex === null || e.prevColumnIndex < 0 || e.prevColumnIndex >= visibleColumns.length) {
+      dxLog("[DxGridInner] Invalid prevColumnIndex:", e.prevColumnIndex);
+      return;
+    }
+
+    // Trouver l'index de la colonne actuelle parmi les colonnes éditables
+    const currentColumn = visibleColumns[e.prevColumnIndex];
+    if (!currentColumn) {
+      dxLog("[DxGridInner] No current column at index:", e.prevColumnIndex);
+      return;
+    }
+
+    const currentEditableIdx = editableColumns.findIndex(
+      (col: any) => col.dataField === currentColumn.dataField
+    );
+
+    if (currentEditableIdx === -1) {
+      dxLog("[DxGridInner] Current column is not editable:", currentColumn.dataField);
+      return;
+    }
+
+    // Calculer la prochaine colonne éditable
+    const isShiftPressed = e.event?.shiftKey;
+    let nextEditableIdx;
+
+    if (isShiftPressed) {
+      // Shift+Tab : aller à la colonne éditable précédente
+      nextEditableIdx = currentEditableIdx - 1;
+      if (nextEditableIdx < 0) {
+        // Boucler vers la dernière colonne éditable
+        nextEditableIdx = editableColumns.length - 1;
+      }
+    } else {
+      // Tab : aller à la colonne éditable suivante
+      nextEditableIdx = currentEditableIdx + 1;
+      if (nextEditableIdx >= editableColumns.length) {
+        // Boucler vers la première colonne éditable
+        nextEditableIdx = 0;
+      }
+    }
+
+    const nextColumn = editableColumns[nextEditableIdx];
+
+    if (!nextColumn) {
+      dxLog("[DxGridInner] No next column at editableIdx:", nextEditableIdx);
+      return;
+    }
+
+    if (nextColumn.visibleIndex === undefined || nextColumn.visibleIndex === null) {
+      dxLog("[DxGridInner] Next column has no visibleIndex:", nextColumn.dataField);
+      return;
+    }
+
+    dxLog("[DxGridInner] Tab navigation: from", currentColumn.dataField, "to", nextColumn.dataField);
+
+    // Modifier les index pour naviguer vers la prochaine colonne éditable dans la MÊME ligne
+    e.newRowIndex = e.prevRowIndex; // IMPORTANT: toujours rester dans la même ligne
+    e.newColumnIndex = nextColumn.visibleIndex;
+  }, []);
+
+  // Exposer la méthode onAdd au parent via ref (compatible avec GridComponent)
+  useImperativeHandle(ref, () => ({
+    onAdd: () => {
+      const gridInstance = getGridInstance(dataGridRef);
+      if (gridInstance) {
+        gridInstance.addRow();
+      }
+    },
+  }), []);
+
+  // Mémoriser la configuration de la colonne de sélection
+  // OPTIMISATION : Passe l'atomFamily et les callbacks stables en paramètres
+  // La référence de selectColumnProps ne change que si les callbacks changent
+  const selectColumnProps = useMemo(() => {
+    return getSelectColumnProps({
+      rowSelectionAtomFamily,
+      onToggleSelection: handleToggleSelection,
+      onRevert: handleRevert,
     });
-  }, [state.rows, setState]);
-
-  console.log("[DxGridInner] Rendering DevExtreme Grid", {
-    widget,
-    isExpandable,
-    isTreeGrid,
-    needsMasterDetail,
-    columns: columns.filter((col: any) => !col.isButton).length,
-    buttonColumns: columns.filter((col: any) => col.isButton).length,
-    totalColumns: columns.length,
-    recordsCount: records.length,
-    dataStoreRecordsCount: dataStore.records.length,
-    groupByFields,
-    hasGrouping,
-    showGroupPanel: hasGrouping || groupByFields.length > 0,
-    view,
-  });
+  }, [handleToggleSelection, handleRevert]);
 
   return (
     <Box d="flex" flexDirection="column" flex={1} style={{ height: "100%", minWidth: 0, overflow: "hidden" }}>
@@ -660,98 +622,63 @@ export default function DxGridInner(props: DxGridInnerProps) {
         columnResizingMode="widget"
         wordWrapEnabled={false}
         remoteOperations={false}
+        repaintChangesOnly={true}
         width="100%"
         height="100%"
+        keyboardNavigation={{
+          enabled: true,
+          editOnKeyPress: false,
+        }}
+        onFocusedCellChanging={handleFocusedCellChanging}
         onOptionChanged={handleOptionChanged}
-        onContentReady={handleContentReady}
         onContextMenuPreparing={handleContextMenuPreparing}
         onRowPrepared={handleRowPrepared}
         onCellPrepared={handleCellPrepared}
-        onSelectionChanged={handleSelectionChanged}
+        onCellClick={handleCellClick}
+        onEditorPreparing={handleEditorPreparing}
+        onInitNewRow={handleInitNewRow}
+        onSaving={handleSaving}
+        onRowUpdated={onRowUpdated}
+        onEditingStart={handleEditingStart}
+        onSaved={handleOnSaved}
+        focusedRowEnabled={true}
         onRowDblClick={(e: any) => {
           onEdit?.(e.data);
         }}
       >
-        {/* Colonne de sélection avec largeur fixe */}
+        {/* Colonne de sélection/undo - affiche checkbox pour lignes normales, undo pour lignes modifiées */}
         {selectionMode !== "none" && (
-          <Column type="selection" width={40} />
+          <Column
+            key="$$select"
+            {...selectColumnProps}
+          />
         )}
 
-        {/* Colonne edit-icon */}
+        {/* Colonne edit-icon - cachée pour les lignes en édition */}
         {view.editIcon !== false && (
           <Column
-            dataField="$$edit"
-            caption=""
-            width={40}
-            minWidth={40}
-            fixed={true}
-            fixedPosition="left"
-            alignment="center"
-            allowSorting={false}
-            allowFiltering={false}
-            allowGrouping={false}
-            allowHiding={false}
-            cellRender={(cellData: any) => {
-              const icon = view.readonly ? "description" : "edit";
-              return (
-                <Box
-                  d="inline-flex"
-                  onClick={() => {
-                    onEdit?.(cellData.data, view.readonly);
-                  }}
-                  style={{ cursor: "pointer", justifyContent: "center", alignItems: "center", height: "100%" }}
-                >
-                  <MaterialIcon icon={icon} />
-                </Box>
-              );
-            }}
+            key="$$edit"
+            {...getEditColumnProps({
+              view,
+              onEdit,
+            })}
           />
         )}
 
         {/* Colonnes (fields ET buttons dans l'ordre de la vue) */}
-        {columns.map((col: any, idx: number) => {
-          return (
-            <Column
-              key={col.dataField || `col_${idx}`}
-              dataField={col.dataField}
-              caption={col.caption}
-              width={col.width}
-              minWidth={col.minWidth}
-              maxWidth={col.maxWidth}
-              visible={col.visible}
-              visibleIndex={col.visibleIndex}
-              alignment={col.alignment}
-              allowSorting={col.allowSorting}
-              allowFiltering={col.allowFiltering}
-              allowGrouping={col.allowGrouping}
-              allowHiding={col.allowHiding}
-              allowReordering={col.allowReordering}
-              dataType={col.dataType}
-              groupIndex={col.groupIndex}
-              lookup={col.lookup}
-              calculateCellValue={col.calculateCellValue}
-              customizeText={col.customizeText}
-              cellRender={(col.field?.widget || col.isButton) ? (cellData: any) => {
-                // Utiliser le composant Cell d'Axelor pour rendre les widgets ET boutons de manière générique
-                // On passe toutes les props nécessaires comme dans la grid Axelor standard
-                return (
-                  <Cell
-                    view={view}
-                    viewContext={context}
-                    data={col.field || col.button}
-                    value={cellData.value}
-                    rawValue={cellData.value}
-                    record={cellData.data}
-                    rowIndex={cellData.rowIndex}
-                    columnIndex={cellData.columnIndex}
-                    actionExecutor={actionExecutor}
-                    onUpdate={onUpdate}
-                  />
-                );
-              } : undefined}
-            />
-          );
-        })}
+        {columns.map((col: any, idx: number) => (
+          <Column
+            key={col.dataField || `col_${idx}`}
+            {...getStandardColumnProps({
+              col,
+              idx,
+              view,
+              viewContext: context,
+              actionExecutor,
+              onUpdate,
+            })}
+          />
+        ))}
 
         {/* Tri - UI DevExtreme, traitement Axelor server-side */}
         <Sorting mode="multiple" />
@@ -762,8 +689,6 @@ export default function DxGridInner(props: DxGridInnerProps) {
 
         {/* Groupement - Toujours actif pour permettre le drag & drop et menu contextuel */}
         <Grouping autoExpandAll={false} contextMenuEnabled={true} />
-        {/* Panneau de groupe - Visible si groupBy défini OU si l'utilisateur a créé des groupes */}
-        <GroupPanel visible={hasGrouping || groupByFields.length > 0} />
 
         {/* Pagination gérée par Axelor (externe à DevExtreme) */}
         <Paging enabled={false} />
@@ -777,15 +702,7 @@ export default function DxGridInner(props: DxGridInnerProps) {
           useNative={false}
         />
 
-        {/* Sélection (comportement) */}
-        {selectionMode !== "none" && (
-          <Selection
-            mode={selectionMode}
-            showCheckBoxesMode="always"
-            selectAllMode="page"
-            deferred={false}
-          />
-        )}
+        {/* Sélection gérée manuellement via notre colonne personnalisée */}
 
         {/* Column Fixing */}
         <ColumnFixing enabled />
@@ -795,8 +712,11 @@ export default function DxGridInner(props: DxGridInnerProps) {
           <Editing
             mode="row"
             allowUpdating={view.canEdit !== false}
-            allowAdding={view.canNew !== false}
-            allowDeleting={view.canDelete !== false}
+            allowAdding={false}
+            allowDeleting={false}
+            selectTextOnEditStart={true}
+            startEditAction="click"
+            useIcons={false}
           />
         )}
 
@@ -828,18 +748,14 @@ export default function DxGridInner(props: DxGridInnerProps) {
           type="custom"
           customLoad={() => {
             // DevExtreme appelle customLoad au démarrage pour restaurer l'état
-            // Nous lisons l'état actuel de gridState.columns
-            console.log("[DxGridInner] StateStoring customLoad: Loading from Axelor gridState", gridState.columns);
-            // DevExtreme s'attend à un objet avec des propriétés comme 'columns', 'grouping', 'sorting', etc.
-            // Nous construisons cet objet à partir de gridState.columns
+            // Nous lisons l'état actuel de gridState.columns (Axelor)
+            // Axelor ne stocke que name, width, visible
+            // groupIndex et sortOrder sont gérés dynamiquement par DevExtreme via la vue XML
             const stateToLoad: any = {
               columns: (gridState.columns || []).map(col => ({
                 dataField: col.name,
-                width: col.width ? parseInt(col.width) : undefined,
+                width: col.width,
                 visible: col.visible,
-                visibleIndex: col.visibleIndex,
-                groupIndex: col.groupIndex,
-                sortOrder: col.sortOrder,
               })).filter(col => col.dataField), // Filtrer les colonnes sans dataField
             };
             return Promise.resolve(stateToLoad);
@@ -849,14 +765,16 @@ export default function DxGridInner(props: DxGridInnerProps) {
             // Nous ne sauvegardons pas ici car handleOptionChanged s'en charge déjà
             // et pousse les changements dans le gridState Axelor.
             // La sauvegarde réelle dans la DB se fait via le dialogue de personnalisation Axelor.
-            console.log("[DxGridInner] StateStoring customSave: DevExtreme state changed, but Axelor gridState is updated via onOptionChanged. No direct save here.");
             return Promise.resolve(); // Ne rien faire ici, la synchronisation est unidirectionnelle vers Axelor gridState
           }}
         />
       </DataGrid>
     </Box>
   );
-}
+});
+
+// Export avec React.memo pour optimiser les re-renders
+export default React.memo(DxGridInner);
 
 /**
  * Renderer pour le MasterDetail (expandable et tree-grid)
@@ -895,31 +813,3 @@ function MasterDetailRenderer({
   );
 }
 
-/**
- * Mapper les types Axelor vers DevExtreme
- */
-function mapAxelorTypeToDevExtreme(
-  type?: string
-): "string" | "number" | "date" | "boolean" | "datetime" | "object" {
-  if (!type) return "string";
-
-  const typeUpper = type.toUpperCase();
-
-  if (typeUpper.includes("INTEGER") || typeUpper.includes("LONG")) {
-    return "number";
-  }
-  if (typeUpper.includes("DECIMAL") || typeUpper.includes("DOUBLE")) {
-    return "number";
-  }
-  if (typeUpper === "DATE") {
-    return "date";
-  }
-  if (typeUpper === "DATETIME" || typeUpper === "TIME") {
-    return "datetime";
-  }
-  if (typeUpper === "BOOLEAN") {
-    return "boolean";
-  }
-
-  return "string";
-}

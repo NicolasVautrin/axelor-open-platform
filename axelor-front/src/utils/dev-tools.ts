@@ -3,6 +3,62 @@
  */
 
 import xmlFormatter from 'xml-formatter';
+import { addLogEntry, getLogEntries, clearLogEntries, type LogEntry } from './indexedDbLogger';
+
+/**
+ * Persistent logging system with crash-resistant IndexedDB storage
+ * Utilise durability: 'strict' pour forcer l'écriture sur disque immédiatement
+ * Écrit simultanément dans console.log ET IndexedDB
+ */
+
+function dxLog(...args: any[]) {
+  // 1. Écrire dans console.log normalement
+  console.log(...args);
+
+  // 2. Créer le log entry
+  const logEntry: LogEntry = {
+    timestamp: new Date().toISOString(),
+    args: args.map(arg => {
+      // Sérialiser les objets pour le stockage
+      if (typeof arg === 'object' && arg !== null) {
+        try {
+          return JSON.parse(JSON.stringify(arg));
+        } catch {
+          return String(arg);
+        }
+      }
+      return arg;
+    })
+  };
+
+  // 3. Sauvegarder dans IndexedDB avec durability: 'strict'
+  // Asynchrone, ne bloque pas l'UI
+  addLogEntry(logEntry).catch(error => {
+    console.error('[dxLog] Failed to write to IndexedDB:', error);
+  });
+}
+
+async function dxGetLogs(): Promise<LogEntry[]> {
+  return await getLogEntries();
+}
+
+async function dxClearLogs() {
+  await clearLogEntries();
+}
+
+async function dxDownloadLogs() {
+  const logs = await dxGetLogs();
+  const blob = new Blob([JSON.stringify(logs, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `dx-grid-logs-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  console.log(`✅ Downloaded ${logs.length} log entries`);
+}
+
+export { dxLog, dxGetLogs, dxClearLogs, dxDownloadLogs };
 
 /**
  * Get CSRF token from cookie
@@ -272,6 +328,204 @@ export async function addAction(actionName: string, actionType: string, xml: str
 }
 
 /**
+ * Remove a view XML definition via API
+ * Usage: removeView('view-name')
+ */
+export async function removeView(viewName: string) {
+  try {
+    // Get the base path (e.g., /VPAuto)
+    const basePath = window.location.pathname.split('/')[1] || '';
+    const prefix = basePath ? `/${basePath}` : '';
+
+    // Get CSRF token
+    const csrfToken = getCsrfToken();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken;
+    }
+
+    // 1. Search for the view
+    const searchResponse = await fetch(`${prefix}/ws/rest/com.axelor.meta.db.MetaView/search`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({
+        data: {
+          criteria: [{
+            fieldName: 'name',
+            operator: '=',
+            value: viewName
+          }]
+        }
+      })
+    });
+
+    const searchResult = await searchResponse.json();
+    if (searchResult.total === 0) {
+      console.warn(`⚠️ Vue ${viewName} non trouvée`);
+      return { status: -1, message: 'Vue non trouvée' };
+    }
+
+    const view = searchResult.data[0];
+
+    // 2. Delete the view
+    const deleteResponse = await fetch(`${prefix}/ws/rest/com.axelor.meta.db.MetaView/${view.id}`, {
+      method: 'DELETE',
+      headers,
+      credentials: 'include',
+    });
+
+    const deleteResult = await deleteResponse.json();
+
+    if (deleteResult.status === 0) {
+      console.log(`✅ Vue ${viewName} supprimée avec succès !`);
+      console.log('🔄 Rafraîchis la page (F5) pour voir les changements');
+      return deleteResult;
+    } else {
+      console.error('❌ Erreur:', deleteResult);
+      return deleteResult;
+    }
+  } catch (error) {
+    console.error('❌ Erreur lors de la suppression:', error);
+    throw error;
+  }
+}
+
+/**
+ * Remove an action XML definition via API
+ * Usage: removeAction('action-name')
+ */
+export async function removeAction(actionName: string) {
+  try {
+    // Get the base path (e.g., /VPAuto)
+    const basePath = window.location.pathname.split('/')[1] || '';
+    const prefix = basePath ? `/${basePath}` : '';
+
+    // Get CSRF token
+    const csrfToken = getCsrfToken();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken;
+    }
+
+    // 1. Search for the action
+    const searchResponse = await fetch(`${prefix}/ws/rest/com.axelor.meta.db.MetaAction/search`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({
+        data: {
+          criteria: [{
+            fieldName: 'name',
+            operator: '=',
+            value: actionName
+          }]
+        }
+      })
+    });
+
+    const searchResult = await searchResponse.json();
+    if (searchResult.total === 0) {
+      console.warn(`⚠️ Action ${actionName} non trouvée`);
+      return { status: -1, message: 'Action non trouvée' };
+    }
+
+    const action = searchResult.data[0];
+
+    // 2. Delete the action
+    const deleteResponse = await fetch(`${prefix}/ws/rest/com.axelor.meta.db.MetaAction/${action.id}`, {
+      method: 'DELETE',
+      headers,
+      credentials: 'include',
+    });
+
+    const deleteResult = await deleteResponse.json();
+
+    if (deleteResult.status === 0) {
+      console.log(`✅ Action ${actionName} supprimée avec succès !`);
+      console.log('🔄 Rafraîchis la page (F5) pour voir les changements');
+      return deleteResult;
+    } else {
+      console.error('❌ Erreur:', deleteResult);
+      return deleteResult;
+    }
+  } catch (error) {
+    console.error('❌ Erreur lors de la suppression:', error);
+    throw error;
+  }
+}
+
+/**
+ * Remove a menu item via API
+ * Usage: removeMenuItem('menu-name')
+ */
+export async function removeMenuItem(menuName: string) {
+  try {
+    // Get the base path (e.g., /VPAuto)
+    const basePath = window.location.pathname.split('/')[1] || '';
+    const prefix = basePath ? `/${basePath}` : '';
+
+    // Get CSRF token
+    const csrfToken = getCsrfToken();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken;
+    }
+
+    // 1. Search for the menu
+    const searchResponse = await fetch(`${prefix}/ws/rest/com.axelor.meta.db.MetaMenu/search`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({
+        data: {
+          criteria: [{
+            fieldName: 'name',
+            operator: '=',
+            value: menuName
+          }]
+        }
+      })
+    });
+
+    const searchResult = await searchResponse.json();
+    if (searchResult.total === 0) {
+      console.warn(`⚠️ Menu ${menuName} non trouvé`);
+      return { status: -1, message: 'Menu non trouvé' };
+    }
+
+    const menu = searchResult.data[0];
+
+    // 2. Delete the menu
+    const deleteResponse = await fetch(`${prefix}/ws/rest/com.axelor.meta.db.MetaMenu/${menu.id}`, {
+      method: 'DELETE',
+      headers,
+      credentials: 'include',
+    });
+
+    const deleteResult = await deleteResponse.json();
+
+    if (deleteResult.status === 0) {
+      console.log(`✅ Menu ${menuName} supprimé avec succès !`);
+      console.log('🔄 Rafraîchis la page (F5) pour voir les changements');
+      return deleteResult;
+    } else {
+      console.error('❌ Erreur:', deleteResult);
+      return deleteResult;
+    }
+  } catch (error) {
+    console.error('❌ Erreur lors de la suppression:', error);
+    throw error;
+  }
+}
+
+/**
  * Add a new menu item via API
  * Usage: addMenuItem('menu-name', 'Menu Title', 'parent-menu-name', 'action-name')
  */
@@ -384,5 +638,13 @@ if (import.meta.env.DEV) {
   (window as any).addView = addView;
   (window as any).addAction = addAction;
   (window as any).addMenuItem = addMenuItem;
-  console.log('🔧 DevTools loaded: updateView(), updateAction(), addView(), addAction(), addMenuItem() are available');
+  (window as any).removeView = removeView;
+  (window as any).removeAction = removeAction;
+  (window as any).removeMenuItem = removeMenuItem;
+  (window as any).dxLog = dxLog;
+  (window as any).dxGetLogs = dxGetLogs;
+  (window as any).dxClearLogs = dxClearLogs;
+  (window as any).dxDownloadLogs = dxDownloadLogs;
+  console.log('🔧 DevTools loaded: updateView(), updateAction(), addView(), addAction(), addMenuItem(), removeView(), removeAction(), removeMenuItem() are available');
+  console.log('📊 Logging: dxLog(), dxGetLogs(), dxClearLogs(), dxDownloadLogs() are available (using IndexedDB with durability: strict)');
 }

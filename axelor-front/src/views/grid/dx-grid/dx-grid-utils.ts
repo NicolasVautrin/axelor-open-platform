@@ -4,6 +4,58 @@ import { DataRecord } from "@/services/client/data.types";
 import { getFieldValue } from "@/utils/data-record";
 import format from "@/utils/format";
 import { toKebabCase } from "@/utils/names";
+import type { RefObject } from "react";
+import type { DataGrid } from "devextreme-react/data-grid";
+
+/**
+ * Génère des IDs négatifs pour les nouvelles lignes non sauvegardées
+ *
+ * Compatible avec le système Axelor qui utilise nextId() pour créer des IDs temporaires
+ * Les IDs négatifs (-1, -2, -3...) permettent de distinguer les nouvelles lignes
+ * des lignes existantes (IDs positifs) et évitent que DevExtreme génère ses propres
+ * clés temporaires (_DX_KEY_...)
+ *
+ * @returns Un ID négatif incrémental (-1, puis -2, puis -3, etc.)
+ */
+export const nextId = (() => {
+  let id = 0;
+  return () => --id;
+})();
+
+/**
+ * Vérifie si un record est une nouvelle ligne non sauvegardée
+ *
+ * @param record - Le DataRecord à vérifier
+ * @returns true si c'est une nouvelle ligne (ID négatif ou absent)
+ */
+export function isNewRecord(record: DataRecord): boolean {
+  return !record?.id || record.id < 0;
+}
+
+/**
+ * Helper pour accéder à l'instance DevExtreme DataGrid
+ *
+ * Gère le fait que `.instance` peut être soit une fonction soit un getter
+ * selon la version de DevExtreme React et le contexte d'exécution
+ */
+export function getGridInstance(dataGridRef: RefObject<DataGrid>): any | null {
+  const gridRef = dataGridRef.current;
+  if (!gridRef) {
+    console.log('[getGridInstance] gridRef is null');
+    return null;
+  }
+
+  // .instance peut être un getter ou une fonction selon la version
+  const instanceType = typeof gridRef.instance;
+  const isMethod = instanceType === 'function';
+  const gridInstance = isMethod
+    ? gridRef.instance()
+    : gridRef.instance;
+
+  console.log(`[getGridInstance] instance accessor: ${isMethod ? 'METHOD' : 'FIELD/GETTER'}, has instance: ${!!gridInstance}`);
+
+  return gridInstance || null;
+}
 
 /**
  * Extrait la valeur d'affichage pour une cellule (gère les M2O avec targetName)

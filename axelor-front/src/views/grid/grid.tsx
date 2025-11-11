@@ -93,6 +93,7 @@ import styles from "./grid.module.scss";
 
 // Import du composant DevExtreme Grid
 const DxGridInner = lazy(() => import("./dx-grid/DxGridInner"));
+import type { DxGridHandle } from "./dx-grid/DxGridInner";
 
 export function Grid(props: ViewProps<GridView>) {
   const { action } = useViewTab();
@@ -158,6 +159,7 @@ function GridInner(props: ViewProps<GridView>) {
   const viewRoute = useViewRoute();
   const pageSetRef = useRef(false);
   const gridRef = useRef<GridHandler>(null);
+  const dxGridRef = useRef<DxGridHandle>(null);
   const selectedIdsRef = useRef<number[]>([]);
   const saveIdRef = useRef<number>(null);
   const saveGridStateRef = useRef(0);
@@ -510,8 +512,10 @@ function GridInner(props: ViewProps<GridView>) {
   const onNewInGrid = useCallback((e?: any) => {
     // to prevent active edited row outside click
     e?.preventDefault?.();
-    gridRef.current?.onAdd?.();
-  }, []);
+    // Pour DevExtreme Grid, utiliser dxGridRef, sinon gridRef
+    const ref = view.css?.includes("dx-grid") ? dxGridRef : gridRef;
+    ref.current?.onAdd?.();
+  }, [view.css]);
 
   const onView = useCallback(
     (record: DataRecord) => {
@@ -944,7 +948,11 @@ function GridInner(props: ViewProps<GridView>) {
           isEqual(currOptions[k as keyof SearchOptions], v),
         )
       ) {
-        return (cacheDataRef.current = false);
+        cacheDataRef.current = false;
+        return Promise.resolve({
+          records: dataStore.records,
+          page: dataStore.page,
+        } as SearchResult);
       }
       return (onSearchRef.current = onSearch)(options);
     },
@@ -1372,6 +1380,7 @@ function GridInner(props: ViewProps<GridView>) {
             {view.css?.includes("dx-grid") ? (
               <Suspense fallback={<div>Loading DevExtreme Grid...</div>}>
                 <DxGridInner
+                  ref={dxGridRef}
                   meta={meta}
                   dataStore={dataStore}
                   searchAtom={searchAtom!}
