@@ -443,14 +443,19 @@ if (json.containsKey("groupBy")) {
 
 ## 🐛 Debug
 
-### Logs IndexedDB persistants
+### Système de logging dual (Console + IndexedDB)
 
-Les logs utilisent IndexedDB avec `durability: 'strict'` pour survivre aux page reloads :
+Tous les logs `dxLog()` sont écri
+ts **simultanément** dans :
+- **La console** : Pour le développement en temps réel
+- **IndexedDB** : Avec `durability: 'strict'` pour survivre aux page reloads, crashs ou fermetures navigateur
+
+Cela permet de déboguer même après un reload (ex: personnalisation qui recharge la page) :
 
 ```javascript
 // Dans la console navigateur
-dxGetLogs()        // Afficher tous les logs
-dxClearLogs()      // Nettoyer les logs
+dxGetLogs()        // Afficher tous les logs persistés
+dxClearLogs()      // Nettoyer les logs IndexedDB
 dxDownloadLogs()   // Télécharger logs.json
 ```
 
