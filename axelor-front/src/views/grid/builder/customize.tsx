@@ -13,6 +13,7 @@ import { saveView } from "@/services/client/meta-cache";
 import { session } from "@/services/client/session";
 import { isUserAllowedCustomizeViews } from "@/utils/app-settings.ts";
 import { useViewMeta } from "@/view-containers/views/scope";
+import { dxLog } from "@/utils/dev-tools";
 
 import { CustomizeSelectorDialog } from "./customize-selector";
 import { useGridState } from "./utils";
@@ -95,11 +96,33 @@ function CustomizeDialog({
           return schemaItem;
         });
 
+      // Extraire les colonnes groupées de gridState.columns (groupIndex !== undefined)
+      // et construire la chaîne groupBy (ex: "parentPartner,user")
+      // Note: DevExtreme peut créer plusieurs colonnes avec le même dataField lors du grouping,
+      // donc on déduplique les noms de colonnes avec Array.from(new Set(...))
+      const groupedColumns = (gridState?.columns || [])
+        .filter((col: any) => col.groupIndex !== undefined && col.groupIndex >= 0)
+        .sort((a: any, b: any) => a.groupIndex - b.groupIndex)
+        .map((col: any) => col.name);
+
+      // Dédupliquer les noms de colonnes (cas où DevExtreme crée des colonnes en double)
+      const uniqueGroupedColumns = Array.from(new Set(groupedColumns));
+
+      const groupBy = uniqueGroupedColumns.length > 0 ? uniqueGroupedColumns.join(',') : undefined;
+
+      dxLog('[customize] getSavedView - grouping state:', {
+        gridStateColumns: gridState?.columns?.length || 0,
+        groupedColumns,
+        groupBy,
+        allColumns: gridState?.columns?.map((c: any) => ({ name: c.name, groupIndex: c.groupIndex }))
+      });
+
       view.customViewShared = shared;
 
       return {
         ...view,
         items,
+        groupBy, // Sauvegarder le grouping
       } as GridView;
     },
     [view, shared, state.rows, saveWidths, records],
@@ -289,11 +312,17 @@ export function useCustomizePopup({
             title: i18n.get("OK"),
             variant: "primary",
             onClick: async (fn) => {
+              dxLog('[customize] OK button clicked, getView available:', !!getView);
               const _view = getView?.(gridState);
+              dxLog('[customize] _view result:', { hasView: !!_view, groupBy: _view?.groupBy });
               if (_view) {
+                dxLog('[customize] Calling saveView...');
                 await saveView(_view);
+                dxLog('[customize] saveView completed');
                 fn(true);
                 reload();
+              } else {
+                dxLog('[customize] ERROR: _view is undefined, not saving!');
               }
             },
           },

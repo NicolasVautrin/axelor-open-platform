@@ -22,18 +22,6 @@ export function createDxDataSource(dataStore: DataStore, fieldsToFetch: string[]
      * Charger les données (appelé par DevExtreme lors du refresh)
      */
     load: async (loadOptions) => {
-      dxLog("[DxDataSource] load called with options:", loadOptions);
-      dxLog("[DxDataSource] load detailed options:", {
-        hasGroup: !!loadOptions.group,
-        group: loadOptions.group,
-        hasSort: !!loadOptions.sort,
-        sort: loadOptions.sort,
-        hasFilter: !!loadOptions.filter,
-        filter: loadOptions.filter,
-        skip: loadOptions.skip,
-        take: loadOptions.take,
-      });
-
       try {
         // Convertir les options DevExtreme en SearchOptions Axelor
         const searchOptions: any = {
@@ -90,13 +78,8 @@ export function createDxDataSource(dataStore: DataStore, fieldsToFetch: string[]
         if (loadOptions.take !== undefined) {
           searchOptions.limit = loadOptions.take;
         }
-        
-        const result = await dataStore.search(searchOptions);
 
-        dxLog("[DxDataSource] load result:", {
-          recordsCount: result.records.length,
-          totalCount: result.page.totalCount,
-        });
+        const result = await dataStore.search(searchOptions);
 
         // Cloner les records pour éviter les problèmes d'immutabilité
         return {
@@ -181,9 +164,13 @@ export function createDxDataSource(dataStore: DataStore, fieldsToFetch: string[]
       dxLog("[DxDataSource] remove called with key:", key);
 
       try {
-        const result = await dataStore.delete({ id: key });
-        dxLog("[DxDataSource] remove result:", result);
-        return result;
+        // Récupérer le record pour obtenir la version
+        const record = await dataStore.read(key, { fields: ["id", "version"] });
+        dxLog("[DxDataSource] Record fetched for deletion:", record);
+
+        // Supprimer avec id et version (version obligatoire)
+        await dataStore.delete({ id: key, version: record.version ?? 0 });
+        dxLog("[DxDataSource] Record deleted successfully");
       } catch (error) {
         console.error("[DxDataSource] Error removing record:", error);
         throw error;

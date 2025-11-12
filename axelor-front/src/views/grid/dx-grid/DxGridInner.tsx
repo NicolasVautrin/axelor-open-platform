@@ -32,6 +32,7 @@ import { dxLog } from "@/utils/dev-tools";
 import { getStandardColumnProps } from "./columns/StandardColumn";
 import { getEditColumnProps } from "./columns/EditColumn";
 import { getSelectColumnProps, SelectAllHeader } from "./columns/SelectColumn";
+import { DxEditCellProvider } from "./widgets/DxEditCellContext";
 import { rowSelectionAtomFamily, clearAllSelectionsAtom, toggleRowSelectionAtom } from "./selectionAtoms";
 import { DataRecord } from "@/services/client/data.types";
 import { i18n } from "@/services/client/i18n";
@@ -68,9 +69,9 @@ import "devextreme/dist/css/dx.light.css";
 // Constantes pour éviter les changements de référence tout en restant mutables
 const REMOTE_OPERATIONS = {
   sorting: true,
-  grouping: true,
+  grouping: false, // Grouping côté client (comme Axelor) car le serveur retourne des données plates
   filtering: true,
-  paging: true,
+  paging: true, // DevExtreme envoie les paramètres de pagination au CustomStore
 };
 
 const KEYBOARD_NAVIGATION = {
@@ -100,14 +101,14 @@ export interface DxGridHandle {
  * - Expandable (avec MasterDetail)
  * - Tree-grid (avec MasterDetail récursif)
  */
-const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps,>(function DxGridInner(props, ref) {
+const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridInner(props, ref) {
   const { meta, dataStore, onSearch, searchOptions, onEdit, state, setState } = props;
   const view = meta.view;
   const fields = meta.fields || {};
   const { context } = useViewAction();
 
   // Ref pour accéder à l'instance DevExtreme DataGrid
-  const dataGridRef = useRef<DxDataGrid>(null);
+  const dataGridRef = useRef<React.ElementRef<typeof DxDataGrid>>(null);
 
   // OPTIMISATION ANTI-FLICKERING avec atomFamily :
   // Chaque ligne a son propre atom, seules les lignes dont l'état change re-rendent
@@ -210,10 +211,48 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps,>(function DxGridI
     rows: [],
   });
 
-  // Column Chooser Axelor
+  // Créer un atom dérivé qui nettoie automatiquement les largeurs invalides (NaN, Infinity)
+  // Cet atom sera utilisé par le dialog de personnalisation pour éviter d'envoyer des NaN au serveur
+  const cleanedGridStateAtom = useMemo(
+    () =>
+      atom((get) => {
+        const state = get(gridStateAtom);
+        if (!state.columns || state.columns.length === 0) {
+          return state;
+        }
+
+        // Nettoyer les largeurs invalides
+        const cleanedColumns = state.columns.map((col: any) => {
+          if (col.width !== undefined) {
+            const widthStr = String(col.width);
+            const parsedWidth = parseInt(widthStr);
+
+            if (
+              widthStr === 'NaN' ||
+              widthStr === 'Infinity' ||
+              widthStr === '-Infinity' ||
+              isNaN(parsedWidth) ||
+              !isFinite(parsedWidth)
+            ) {
+              const { width, ...rest } = col;
+              return rest;
+            }
+          }
+          return col;
+        });
+
+        return {
+          ...state,
+          columns: cleanedColumns,
+        };
+      }),
+    [gridStateAtom],
+  );
+
+  // Column Chooser Axelor - utilise l'atom nettoyé
   const onColumnCustomize = useCustomizePopup({
     view,
-    stateAtom: gridStateAtom,
+    stateAtom: cleanedGridStateAtom as any,
   });
 
   // Construire la liste des champs à fetcher (inclut les targetName pour les M2O ET les champs des hilites)
@@ -258,6 +297,7 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps,>(function DxGridI
   // Déclencher la recherche quand searchOptions change (pagination)
   useEffect(() => {
     if (onSearch && searchOptions) {
+      dxLog("[DxGridInner] searchOptions changed, calling onSearch with:", searchOptions);
       onSearch({ ...searchOptions, fields: fieldsToFetch });
     }
   }, [searchOptions, onSearch, fieldsToFetch]);
@@ -270,8 +310,11 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps,>(function DxGridI
 
   // Parser les champs de regroupement (peut être une liste séparée par des virgules)
   const groupByFields = useMemo(() => {
+    dxLog('[DxGridInner] Parsing groupBy from view:', { groupBy: view.groupBy });
     if (!view.groupBy) return [];
-    return view.groupBy.split(',').map(f => f.trim());
+    const fields = view.groupBy.split(',').map(f => f.trim());
+    dxLog('[DxGridInner] Parsed groupByFields:', fields);
+    return fields;
   }, [view.groupBy]);
 
   // Mapper les colonnes Axelor vers DevExtreme (fields ET buttons dans l'ordre de la vue)
@@ -287,6 +330,14 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps,>(function DxGridI
   const dxDataSource = useMemo(() => {
     return createDxDataSource(dataStore, fieldsToFetch);
   }, [dataStore, fieldsToFetch]);
+
+  // Rafraîchir le DataSource quand les records du dataStore changent (suite à onSearch)
+  useEffect(() => {
+    const gridInstance = getGridInstance(dataGridRef);
+    if (gridInstance && dxDataSource) {
+      dxDataSource.reload();
+    }
+  }, [dataStore.records, dxDataSource]);
 
   // Gestion de la sélection - Par défaut les checkboxes sont activées sauf si selector="none"
   const selectionMode = view.selector === "none" ? "none" : "multiple";
@@ -397,6 +448,8 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps,>(function DxGridI
 
   // Gérer le clic sur une cellule pour démarrer l'édition en mode row
   const handleCellClick = useCallback(async (e: any) => {
+    dxLog("[DxGridInner] handleCellClick called - rowType:", e.rowType, "key:", e.key, "dataField:", e.column?.dataField);
+
     if (e.rowType !== 'data' || e.key === undefined || e.key === null) {
       return;
     }
@@ -437,8 +490,7 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps,>(function DxGridI
       gridInstance.saveEditData().done(() => {
         dxLog("[DxGridInner] saveEditData().done() - Opening target row");
 
-        // Ouvrir la nouvelle ligne en édition en utilisant l'option directement
-        // (évite les reloads déclenchés par editRow())
+        // Ouvrir la nouvelle ligne en édition
         gridInstance.option('editing.editRowKey', e.key);
         dxLog("[DxGridInner] editing.editRowKey set to:", e.key);
 
@@ -456,7 +508,9 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps,>(function DxGridI
       });
     } else {
       // Pas de switch, ouvrir directement
-      gridInstance.option('editing.editRowKey', e.key);
+      dxLog("[DxGridInner] Opening row in edit mode:", e.key);
+      gridInstance.editRow(gridInstance.getRowIndexByKey(e.key));
+      dxLog("[DxGridInner] editRow called for key:", e.key);
     }
   }, []);
 
@@ -499,7 +553,7 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps,>(function DxGridI
     if (gridInstance) {
       // getVisibleRows() retourne un tableau d'objets comme { data: ..., key: ..., rowType: ... }
       // Nous avons besoin uniquement de la 'key' pour les lignes de données.
-      return gridInstance.getVisibleRows().filter(row => row.rowType === 'data').map(row => row.key);
+      return gridInstance.getVisibleRows().filter((row: any) => row.rowType === 'data').map((row: any) => row.key);
     }
     return [];
   }, []);
@@ -531,8 +585,9 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps,>(function DxGridI
   }, []);
 
   return (
-    <Box d="flex" flexDirection="column" flex={1} style={{ height: "100%", minWidth: 0, overflow: "hidden" }}>
-      <DataGrid
+    <DxEditCellProvider>
+      <Box d="flex" flexDirection="column" flex={1} style={{ height: "100%", minWidth: 0, overflow: "hidden" }}>
+        <DataGrid
         ref={dataGridRef}
         dataSource={dxDataSource}
         keyExpr="id"
@@ -597,6 +652,8 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps,>(function DxGridI
               viewContext: context,
               actionExecutor,
               onUpdate,
+              allFields: fields,
+              onCellClick: handleCellClick,
             })}
           />
         ))}
@@ -665,7 +722,8 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps,>(function DxGridI
         )}
         <StateStoring enabled={false} />
       </DataGrid>
-    </Box>
+      </Box>
+    </DxEditCellProvider>
   );
 });
 

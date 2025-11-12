@@ -1,0 +1,61 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(pnpm add:*)",
+      "Bash(pnpm tsc:*)",
+      "Bash(pnpm dev)",
+      "Bash(cat:*)",
+      "mcp__chrome-devtools__list_pages",
+      "mcp__chrome-devtools__navigate_page",
+      "mcp__chrome-devtools__take_snapshot",
+      "mcp__chrome-devtools__fill",
+      "mcp__chrome-devtools__click",
+      "mcp__chrome-devtools__wait_for",
+      "mcp__chrome-devtools__list_console_messages",
+      "mcp__chrome-devtools__get_console_message",
+      "mcp__chrome-devtools__list_network_requests",
+      "mcp__chrome-devtools__evaluate_script",
+      "mcp__chrome-devtools__get_network_request",
+      "Bash(curl:*)",
+      "mcp__postgres__connect_db",
+      "mcp__postgres__query",
+      "mcp__postgres__describe_table",
+      "mcp__chrome-devtools__take_screenshot",
+      "WebSearch",
+      "WebFetch(domain:js.devexpress.com)",
+      "mcp__zen__chat",
+      "mcp__chrome-devtools__press_key",
+      "Bash(NUL)",
+      "WebFetch(domain:supportcenter.devexpress.com)",
+      "mcp__postgres__execute",
+      "Bash(git log:*)",
+      "Bash(git rev-list:*)",
+      "Bash(setx GEMINI_API_KEY \"VOTRE_NOUVELLE_CLE_API\")",
+      "Bash(powershell -Command \"echo $env:GEMINI_API_KEY\")",
+      "Bash(powershell -Command '$env:GEMINI_API_KEY')",
+      "Bash(powershell -Command \"if ($env:GEMINI_API_KEY) { Write-Host ''GEMINI_API_KEY is set'' } else { Write-Host ''GEMINI_API_KEY is NOT set'' }\")",
+      "Bash(powershell -Command \"Get-ChildItem Env:GEMINI_API_KEY\")",
+      "Bash(git clone:*)",
+      "Bash(git ls-remote:*)",
+      "Bash(dir \"C:\\Users\\nicolasv\\DevExtreme-22_2\\js\\ui\\grid_core\" /b)",
+      "Bash(git fetch:*)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(find:*)",
+      "Bash(npm run dev:*)",
+      "Bash(mkdir:*)",
+      "Bash(npm run build:*)",
+      "mcp__postgres__list_tables"
+    ],
+    "ask": [
+      "Edit",
+      "Write"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "jdwp-inspector"
+  ]
+}

@@ -88,26 +88,32 @@ async function flushLogs(): Promise<void> {
 }
 
 /**
- * Add a log entry to the buffer
- * Will be flushed to IndexedDB automatically
+ * Add a log entry to IndexedDB IMMEDIATELY (no buffering)
+ * Uses durability: 'strict' to ensure logs survive page reloads
  */
 async function addLogEntry(entry: LogEntry): Promise<void> {
-  logBuffer.push(entry);
+  try {
+    const database = await openDb();
 
-  // Flush immediately if buffer is full
-  if (logBuffer.length >= MAX_BUFFER_SIZE) {
-    if (flushTimeout) {
-      clearTimeout(flushTimeout);
-    }
-    await flushLogs();
-    return;
-  }
+    // Write immediately with durability: 'strict' pour garantir l'écriture sur disque
+    const transaction = database.transaction([STORE_NAME], 'readwrite', {
+      durability: 'strict'
+    });
+    const store = transaction.objectStore(STORE_NAME);
+    store.add(entry);
 
-  // Schedule a flush if not already scheduled
-  if (!flushTimeout) {
-    flushTimeout = window.setTimeout(() => {
-      flushLogs();
-    }, FLUSH_INTERVAL_MS);
+    await new Promise<void>((resolve, reject) => {
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = (e) => {
+        console.error('[IndexedDB] Transaction error:', (e.target as IDBTransaction).error);
+        reject((e.target as IDBTransaction).error);
+      };
+    });
+
+    // Rotation après chaque écriture
+    await rotateLogsIfNeeded(database);
+  } catch (error) {
+    console.error('[IndexedDB] Failed to write log immediately:', error);
   }
 }
 

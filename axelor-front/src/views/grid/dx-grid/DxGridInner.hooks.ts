@@ -114,6 +114,8 @@ export function useDxColumns({ view, fields, groupByFields, gridStateColumns = [
           widget,
           // Appliquer le groupIndex si nécessaire
           groupIndex: groupIndex,
+          // Garder la colonne visible même quand elle est groupée
+          showWhenGrouped: true,
           // Lookup pour les sélections
           lookup,
           // Fonction pour extraire la valeur (gère M2O avec targetName)
@@ -263,16 +265,34 @@ export function useHandleOptionChanged({ setHasGrouping, triggerSearch, setGridS
       // getVisibleColumns() renvoie les colonnes dans leur ordre actuel et avec leur état visible
       const currentDxColumns = dxGridInstance.getVisibleColumns();
 
-      const updatedColumns = currentDxColumns.map((dxCol: any) => {
-        // Mapper les propriétés de colonne DevExtreme au format attendu par GridColumn Axelor
-        // GridColumn attend width en number, pas en string
-        return {
-          name: dxCol.dataField,
-          width: dxCol.width, // Garder en number comme attendu par GridColumn
-          visible: dxCol.visible,
-          computed: true, // Marquer comme "calculé" pour le système de sauvegarde Axelor
-        };
-      });
+      const updatedColumns = currentDxColumns
+        // Filtrer les colonnes système (checkbox, edit-icon, buttons) qui ne doivent pas être sauvegardées
+        .filter((dxCol: any) => {
+          // Ignorer les colonnes sans dataField ou avec dataField commençant par $ (système)
+          return dxCol.dataField && !dxCol.dataField.startsWith('$');
+        })
+        .map((dxCol: any) => {
+          // Mapper les propriétés de colonne DevExtreme au format attendu par GridColumn Axelor
+          // GridColumn attend width en number, pas en string
+          // Valider que width est un nombre valide, sinon utiliser undefined
+          let width = dxCol.width;
+
+          // Filtrer les valeurs invalides (NaN, Infinity, ou strings "NaN"/"Infinity")
+          if (
+            (typeof width === 'number' && (isNaN(width) || !isFinite(width))) ||
+            (typeof width === 'string' && (width === 'NaN' || width === 'Infinity' || width === '-Infinity'))
+          ) {
+            width = undefined;
+          }
+
+          return {
+            name: dxCol.dataField,
+            width: width, // Garder en number comme attendu par GridColumn
+            visible: dxCol.visible,
+            groupIndex: dxCol.groupIndex, // Sauvegarder le groupIndex pour la personnalisation
+            computed: true, // Marquer comme "calculé" pour le système de sauvegarde Axelor
+          };
+        });
 
       setGridState((draft) => {
         const existingAxelorColumns = draft.columns || [];
@@ -282,7 +302,8 @@ export function useHandleOptionChanged({ setHasGrouping, triggerSearch, setGridS
           return !oldCol ||
                  oldCol.name !== newCol.name ||
                  oldCol.width !== newCol.width ||
-                 oldCol.visible !== newCol.visible;
+                 oldCol.visible !== newCol.visible ||
+                 oldCol.groupIndex !== newCol.groupIndex;
         });
 
         if (hasChanges) {

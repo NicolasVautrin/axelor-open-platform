@@ -17,6 +17,7 @@ import {
 } from "./meta-utils";
 import { FormView, type ActionView, type ViewType } from "./meta.types";
 import { reject } from "./reject";
+import { dxLog } from "@/utils/dev-tools";
 
 const cache = new LoadingCache<Promise<any>>();
 
@@ -100,21 +101,26 @@ export async function findFields(
 }
 
 export async function saveView(data: any) {
+  dxLog('[saveView] Called with data:', { name: data.name, model: data.model, groupBy: data.groupBy, hasItems: !!data.items });
+
   const resp = await request({
     url: "ws/meta/view/save",
     method: "POST",
     body: { data },
   });
 
+  dxLog('[saveView] Response received:', { ok: resp.ok, status: resp.status });
+
   if (resp.ok) {
-    const { status, data } = await resp.json();
+    const { status, data: responseData } = await resp.json();
+    dxLog('[saveView] Response parsed:', { status, data: responseData });
     if (status === 0) {
-      const { model, type, name } = data;
+      const { model, type, name } = responseData;
       const key = makeKey("view", model, type, name);
       cache.delete(key);
-      return data;
+      return responseData;
     }
-    return reject(data);
+    return reject(responseData);
   }
 
   return Promise.reject(resp.status);

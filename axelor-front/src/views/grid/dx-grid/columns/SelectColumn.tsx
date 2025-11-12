@@ -11,7 +11,7 @@ interface SelectCellProps {
   rowIndex: number;
   rowKey: any;
   isEditing: boolean;
-  rowSelectionAtomFamily: typeof import('./selectionAtoms').rowSelectionAtomFamily;
+  rowSelectionAtomFamily: typeof import('../selectionAtoms').rowSelectionAtomFamily;
   onToggleSelection: (rowKey: any) => void;
   onRevert: (e: any, rowKey: any) => void;
 }

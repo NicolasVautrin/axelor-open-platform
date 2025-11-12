@@ -1,6 +1,7 @@
+import React from "react";
 import { dxLog } from "@/utils/dev-tools";
 import { getGridInstance } from "./dx-grid-utils";
-import type { DxDataGrid } from "devextreme-react/data-grid";
+import type { DataGrid } from "devextreme-react/data-grid";
 import type DataSource from "devextreme/data/data_source";
 
 /**
@@ -17,7 +18,7 @@ export const DX_GRID_DEBUG_ENABLED = false;
  * - Appels à optionChanged sur DataController et EditingController
  * - Appels à _refreshDataSource avec la cause (option qui a changé)
  */
-export function enableDxGridDebug(dataGridRef: React.RefObject<DxDataGrid>) {
+export function enableDxGridDebug(dataGridRef: React.RefObject<React.ElementRef<typeof DataGrid> | null>) {
   if (!DX_GRID_DEBUG_ENABLED) return () => {};
 
   const gridInstance = getGridInstance(dataGridRef);
@@ -95,13 +96,13 @@ export function enableDataSourceDebug(dataSource: DataSource) {
   dataSource.load = function(...args: any[]) {
     const stack = new Error().stack;
     dxLog("[DataSource] load() called MONKEY PATCH STACK:", stack);
-    return originalLoad(...args);
+    return originalLoad.apply(this, args as any);
   };
 
   dataSource.reload = function(...args: any[]) {
     const stack = new Error().stack;
     dxLog("[DataSource] reload() called MONKEY PATCH STACK:", stack);
-    return originalReload(...args);
+    return originalReload.apply(this, args as any);
   };
 
   // Retourner une fonction cleanup

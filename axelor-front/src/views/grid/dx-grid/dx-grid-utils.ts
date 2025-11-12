@@ -4,8 +4,8 @@ import { DataRecord } from "@/services/client/data.types";
 import { getFieldValue } from "@/utils/data-record";
 import format from "@/utils/format";
 import { toKebabCase } from "@/utils/names";
-import type { RefObject } from "react";
-import type { DataGrid } from "devextreme-react/data-grid";
+import React, { type RefObject } from "react";
+import { DataGrid } from "devextreme-react/data-grid";
 
 /**
  * Génère des IDs négatifs pour les nouvelles lignes non sauvegardées
@@ -38,7 +38,7 @@ export function isNewRecord(record: DataRecord): boolean {
  * Gère le fait que `.instance` peut être soit une fonction soit un getter
  * selon la version de DevExtreme React et le contexte d'exécution
  */
-export function getGridInstance(dataGridRef: RefObject<DataGrid>): any | null {
+export function getGridInstance(dataGridRef: RefObject<React.ElementRef<typeof DataGrid> | null>): any | null {
   const gridRef = dataGridRef.current;
   if (!gridRef) {
     console.log('[getGridInstance] gridRef is null');
@@ -52,7 +52,10 @@ export function getGridInstance(dataGridRef: RefObject<DataGrid>): any | null {
     ? gridRef.instance()
     : gridRef.instance;
 
-  console.log(`[getGridInstance] instance accessor: ${isMethod ? 'METHOD' : 'FIELD/GETTER'}, has instance: ${!!gridInstance}`);
+  // Logger uniquement si ce n'est PAS une méthode (cas inhabituel)
+  if (!isMethod) {
+    console.log(`[getGridInstance] instance accessor: FIELD/GETTER, has instance: ${!!gridInstance}`);
+  }
 
   return gridInstance || null;
 }

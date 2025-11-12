@@ -294,6 +294,32 @@ mcp__chrome-devtools__list_network_requests({
 })
 ```
 
+**IMPORTANT** : Pour analyser les logs dans DevTools (console ou network), **TOUJOURS commencer par la dernière page** car les résultats sont paginés et les logs les plus récents se trouvent à la fin.
+
+Exemple :
+```typescript
+// ❌ MAUVAIS : Commencer par la page 0 (premiers logs)
+mcp__chrome-devtools__list_network_requests({
+  resourceTypes: ["fetch", "xhr"],
+  pageSize: 10
+})
+
+// ✅ BON : D'abord vérifier le nombre total de pages, puis aller à la dernière page
+// 1. Récupérer la première page pour connaître le total
+const firstPage = mcp__chrome-devtools__list_network_requests({
+  resourceTypes: ["fetch", "xhr"],
+  pageSize: 10
+})
+// Regarder "Showing X-Y of Z (Page 1 of N)" pour connaître N
+
+// 2. Aller directement à la dernière page
+mcp__chrome-devtools__list_network_requests({
+  resourceTypes: ["fetch", "xhr"],
+  pageSize: 10,
+  pageIdx: N-1  // Dernière page (0-indexed)
+})
+```
+
 ### Avantages
 - Accès automatique aux informations sans intervention manuelle de l'utilisateur
 - Récupération précise des logs, erreurs et états de l'application

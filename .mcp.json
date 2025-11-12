@@ -1,0 +1,58 @@
+{
+  "mcpServers": {
+    "sqlite_db": {
+      "command": "uvx",
+      "args": [
+        "mcp-server-sqlite",
+        "--db-path",
+        "C:\\Users\\nicolasv\\Bricklead_Encheres\\.callgraph.db"
+      ]
+    },
+    "chrome-devtools": {
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "chrome-devtools-mcp@latest"
+      ]
+    },
+    "jdwp-inspector": {
+      "command": "java",
+      "args": [
+        "-DHOME=C:/Users/nicolasv/MCP_servers/mcp-jdwp-java",
+        "-DJVM_JDWP_PORT=61959",
+        "-DDEBUGGERX_PROXY_PORT=55005",
+        "-jar",
+        "C:/Users/nicolasv/MCP_servers/mcp-jdwp-java/build/libs/mcp-jdwp-java-1.0.0.jar"
+      ]
+    },
+    "zen": {
+      "command": "C:/Users/nicolasv/MCP_servers/zen-mcp-server/.zen_venv/Scripts/python.exe",
+      "args": [
+        "C:/Users/nicolasv/MCP_servers/zen-mcp-server/server.py"
+      ],
+      "env": {
+        "DISABLED_TOOLS": "analyze,refactor,testgen,secaudit,docgen,tracer",
+        "DEFAULT_MODEL": "gemini-2.5-flash"
+      }
+    },
+    "postgres": {
+      "type": "stdio",
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "mcp-postgres-server"
+      ],
+      "env": {
+        "PGHOST": "localhost",
+        "PGPORT": "5433",
+        "PGDATABASE": "VPAuto",
+        "PGUSER": "openauction",
+        "PGPASSWORD": "niotcua"
+      }
+    }
+  }
+}
