@@ -63,6 +63,10 @@ import { MetaScope, useUpdateViewDirty } from "@/view-containers/views/scope";
 import { Grid as GridComponent, GridHandler } from "@/views/grid/builder";
 import { useCustomizePopup } from "@/views/grid/builder/customize";
 import { ExpandIcon } from "@/views/grid/builder/expandable";
+import { lazy, Suspense } from "react";
+
+// Lazy load DxGridInner
+const DxGridInner = lazy(() => import("@/views/grid/dx-grid/DxGridInner"));
 import {
   CollectionTree,
   GridExpandableContext,
@@ -2086,76 +2090,99 @@ function OneToManyInner({
       >
         <GridExpandableContext.Provider value={expandableContext}>
           <ScopeProvider scope={MetaScope} value={viewMeta}>
-            <GridComponent
-              style={gridStyle}
-              className={clsx(styles["grid"], {
-                [styles["basic"]]: !hasMasterDetails,
-                [styles["no-rows"]]: !hasRows,
-                [styles["tree-grid"]]: isTreeGrid,
-                [styles["sub-tree-grid"]]: isSubTreeGrid,
-              })}
-              ref={gridRef}
-              allowGrouping={allowGrouping}
-              allowSorting={allowSorting}
-              allowRowDND={canMove}
-              allowRowReorder={allowRowReorder}
-              showEditIcon={canEdit || canView}
-              {...(isTreeGrid && {
-                showAsTree: true,
-                showNewIcon: canNew,
-                showDeleteIcon: canDelete,
-              })}
-              readonly={readonly || !canEdit}
-              editable={editable && (canEdit || canNew)}
-              records={records}
-              expandable={expandable}
-              expandableView={expandableView}
-              view={gridViewData}
-              fields={gridViewFields}
-              perms={perms}
-              columnAttrs={isSubTreeGrid ? treeColumnAttrs : columnAttrs}
-              state={state}
-              setState={setState}
-              actionExecutor={actionExecutor}
-              hasRowExpanded={hasRowExpanded}
-              onFormInit={forceUpdate}
-              onEdit={canEdit ? onEdit : canView ? onView : noop}
-              onView={canView ? (canEdit ? onEdit : onView) : noop}
-              onUpdate={isManyToMany ? onSave : onO2MUpdate}
-              onDelete={onDelete}
-              onSave={isManyToMany ? onM2MSave : onO2MSave}
-              onDiscard={onDiscard}
-              onRowExpand={onRowExpand}
-              onRowReorder={onRowReorder}
-              {...(canNew && {
-                onNew: editableAndCanEdit ? handleAddInGrid : onAdd,
-              })}
-              {...(isTreeGrid &&
-                canNew && {
-                  onAddSubLine,
+            {gridViewData.css?.includes("dx-grid") ? (
+              <Suspense fallback={<div>Loading DevExtreme Grid...</div>}>
+                <DxGridInner
+                  ref={gridRef as any}
+                  meta={viewMeta}
+                  dataStore={dataStore}
+                  searchAtom={undefined}
+                  onSearch={undefined}
+                  searchOptions={dataStore.options}
+                  onEdit={canEdit ? onEdit : canView ? onView : noop}
+                  state={state}
+                  setState={setState}
+                  readonly={readonly || !canEdit}
+                  // Props pour le mode local (OneToMany)
+                  records={records}
+                  onUpdate={onO2MUpdate}
+                  onSave={onO2MSave}
+                  onDelete={onDelete}
+                  onDiscard={onDiscard}
+                />
+              </Suspense>
+            ) : (
+              <GridComponent
+                style={gridStyle}
+                className={clsx(styles["grid"], {
+                  [styles["basic"]]: !hasMasterDetails,
+                  [styles["no-rows"]]: !hasRows,
+                  [styles["tree-grid"]]: isTreeGrid,
+                  [styles["sub-tree-grid"]]: isSubTreeGrid,
                 })}
-              {...(canDelete && {
-                onDelete: onDelete,
-              })}
-              {...(!canNew &&
-                editableAndCanEdit && {
-                  onRecordAdd: undefined,
+                ref={gridRef}
+                allowGrouping={allowGrouping}
+                allowSorting={allowSorting}
+                allowRowDND={canMove}
+                allowRowReorder={allowRowReorder}
+                showEditIcon={canEdit || canView}
+                {...(isTreeGrid && {
+                  showAsTree: true,
+                  showNewIcon: canNew,
+                  showDeleteIcon: canDelete,
                 })}
-              {...(hasMasterDetails &&
-                selected &&
-                !detailRecord && {
-                  onRowClick,
+                readonly={readonly || !canEdit}
+                editable={editable && (canEdit || canNew)}
+                records={records}
+                expandable={expandable}
+                expandableView={expandableView}
+                view={gridViewData}
+                fields={gridViewFields}
+                perms={perms}
+                columnAttrs={isSubTreeGrid ? treeColumnAttrs : columnAttrs}
+                state={state}
+                setState={setState}
+                actionExecutor={actionExecutor}
+                hasRowExpanded={hasRowExpanded}
+                onFormInit={forceUpdate}
+                onEdit={canEdit ? onEdit : canView ? onView : noop}
+                onView={canView ? (canEdit ? onEdit : onView) : noop}
+                onUpdate={isManyToMany ? onSave : onO2MUpdate}
+                onDelete={onDelete}
+                onSave={isManyToMany ? onM2MSave : onO2MSave}
+                onDiscard={onDiscard}
+                onRowExpand={onRowExpand}
+                onRowReorder={onRowReorder}
+                {...(canNew && {
+                  onNew: editableAndCanEdit ? handleAddInGrid : onAdd,
                 })}
-              {...(isSubTreeGrid && {
-                headerRowRenderer: HideGridHeaderRow,
-                allowColumnCustomize: false,
-                allowColumnHide: false,
-              })}
-              {...(canExpandAll && {
-                headerCellRenderer: CustomGridHeaderCell,
-              })}
-              onColumnCustomize={onColumnCustomize}
-            />
+                {...(isTreeGrid &&
+                  canNew && {
+                    onAddSubLine,
+                  })}
+                {...(canDelete && {
+                  onDelete: onDelete,
+                })}
+                {...(!canNew &&
+                  editableAndCanEdit && {
+                    onRecordAdd: undefined,
+                  })}
+                {...(hasMasterDetails &&
+                  selected &&
+                  !detailRecord && {
+                    onRowClick,
+                  })}
+                {...(isSubTreeGrid && {
+                  headerRowRenderer: HideGridHeaderRow,
+                  allowColumnCustomize: false,
+                  allowColumnHide: false,
+                })}
+                {...(canExpandAll && {
+                  headerCellRenderer: CustomGridHeaderCell,
+                })}
+                onColumnCustomize={onColumnCustomize}
+              />
+            )}
           </ScopeProvider>
         </GridExpandableContext.Provider>
         {hasMasterDetails && detailMeta ? (

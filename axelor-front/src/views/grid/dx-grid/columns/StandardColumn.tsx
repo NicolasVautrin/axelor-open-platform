@@ -51,37 +51,20 @@ export function getStandardColumnProps({
     lookup: col.lookup,
     calculateCellValue: col.calculateCellValue,
     customizeText: col.customizeText,
-    // Mode affichage : Utiliser FormWidget readonly via DxDisplayCell
+    // Mode affichage : Utiliser Cell d'Axelor via DxDisplayCell
     cellRender: !col.isButton && col.field && col.fieldMeta ? (cellData: any) => {
-      const handleClick = (e: React.MouseEvent) => {
-        console.log('[StandardColumn] handleClick called for dataField:', col.dataField, 'key:', cellData.key);
-        if (onCellClick) {
-          onCellClick({
-            rowType: cellData.rowType,
-            key: cellData.key,
-            column: {
-              dataField: col.dataField,
-              allowEditing: col.allowEditing
-            },
-            columnIndex: cellData.columnIndex,
-            component: cellData.component
-          });
-        }
-      };
-
       return (
-        <div onClick={handleClick} style={{ width: '100%', height: '100%' }}>
-          <div style={{ pointerEvents: 'none', width: '100%', height: '100%' }}>
-            <DxDisplayCell
-              cellData={cellData}
-              field={col.field}
-              fieldMeta={col.fieldMeta}
-              allFields={allFields}
-              view={view}
-              viewContext={viewContext}
-            />
-          </div>
-        </div>
+        <DxDisplayCell
+          cellData={cellData}
+          field={col.field}
+          fieldMeta={col.fieldMeta}
+          allFields={allFields}
+          view={view}
+          viewContext={viewContext}
+          actionExecutor={actionExecutor}
+          index={idx}
+          onUpdate={onUpdate}
+        />
       );
     } : col.isButton ? (cellData: any) => {
       // Boutons : utiliser Cell avec col.button

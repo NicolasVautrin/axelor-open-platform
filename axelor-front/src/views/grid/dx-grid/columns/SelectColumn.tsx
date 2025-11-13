@@ -31,7 +31,7 @@ const SelectCell: React.FC<SelectCellProps> = ({
 }) => {
   // Lit l'état de sélection spécifique à cette ligne
   const isSelected = useAtomValue(rowSelectionAtomFamily(rowKey));
-
+  
   // Si la ligne est en édition, afficher l'icône "undo"
   if (isEditing) {
     return (

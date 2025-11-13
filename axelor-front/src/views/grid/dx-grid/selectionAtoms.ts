@@ -53,12 +53,12 @@ export const toggleRowSelectionAtom = atom(
   (get, set, rowKey: any) => {
     const prevSelectedSet = get(selectedRowKeysSetAtom);
     const newSelectedSet = new Set(prevSelectedSet);
-
+    
     if (prevSelectedSet.has(rowKey)) {
       newSelectedSet.delete(rowKey);
-    } else {
+   } else {
       newSelectedSet.add(rowKey);
-    }
+  }
 
     set(selectedRowKeysSetAtom, newSelectedSet);
   }

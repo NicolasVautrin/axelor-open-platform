@@ -1,8 +1,5 @@
 import React, { useMemo } from "react";
-import { FormWidget } from "@/views/form/builder";
-import { useFormHandlers } from "@/views/form/builder/form";
-import { useFieldSchema } from "./useFieldSchema";
-import { useDxEditCellCache } from "./DxEditCellContext";
+import { Cell } from "@/views/grid/renderers/cell/cell";
 import type { Field, GridView } from "@/services/client/meta.types";
 import type { DataContext } from "@/services/client/data.types";
 
@@ -19,13 +16,22 @@ interface DxDisplayCellProps {
   view: GridView;
   /** Contexte de la vue */
   viewContext?: DataContext;
+  /** Action executor */
+  actionExecutor?: any;
+  /** Index de la cellule */
+  index?: number;
+  /** Callback de mise à jour */
+  onUpdate?: (record: any) => Promise<any>;
 }
 
 /**
  * Composant d'affichage de cellule en mode lecture pour DevExtreme Grid.
  *
- * Utilise FormWidget en readonly pour afficher les valeurs formatées comme Axelor.
- * Réutilise le même cache de formAtom que DxEditCell pour éviter les re-renders.
+ * Utilise le composant Cell d'Axelor pour l'affichage (même composant que les grilles standard).
+ * Cela garantit l'alignement automatique selon le type (nombres à droite, texte à gauche, etc.)
+ *
+ * Cell attend un GridColumn (alias de Field) avec les propriétés nécessaires pour
+ * déterminer le widget à utiliser : widget, type, serverType, selectionList, etc.
  *
  * @example
  * // Dans StandardColumn.tsx cellRender
@@ -36,47 +42,41 @@ interface DxDisplayCellProps {
  *   allFields={fields}
  *   view={view}
  *   viewContext={viewContext}
+ *   actionExecutor={actionExecutor}
+ *   index={idx}
+ *   onUpdate={onUpdate}
  * />
  */
 export const DxDisplayCell = React.memo(
   function DxDisplayCell(props: DxDisplayCellProps) {
-    const { cellData, field, fieldMeta, allFields, view, viewContext } = props;
-    const cache = useDxEditCellCache();
+    const { cellData, field, fieldMeta, view, viewContext, actionExecutor, index, onUpdate } = props;
 
-    // Utiliser le même cache que DxEditCell pour réutiliser le formAtom
-    const rowKey = cellData.key;
-    let cachedFormAtom = cache.get(rowKey);
+    // Enrichir le field avec TOUTES les métadonnées nécessaires depuis fieldMeta
+    // Cell (via getWidget) a besoin de: widget, type, serverType
+    // Les widgets individuels ont besoin de: selectionList, target, targetName, etc.
+    // IMPORTANT: Merger d'abord field puis fieldMeta pour ajouter les métadonnées sans écraser les props XML
+    const enrichedField = useMemo(() => {
+      const result = {
+        ...field,      // Props de la vue XML en premier
+        ...fieldMeta,  // Ajouter toutes les métadonnées du serveur
+      };
 
-    const formHandlers = useFormHandlers(
-      {
-        view,
-        fields: allFields,
-        model: view.model,
-      } as any,
-      cellData.data,
-      {
-        context: viewContext,
-      }
-    );
-
-    // Si pas de cache, créer et sauvegarder le formAtom
-    if (!cachedFormAtom) {
-      cachedFormAtom = formHandlers.formAtom;
-      cache.set(rowKey, cachedFormAtom);
-    }
-
-    const formAtom = cachedFormAtom;
-
-    // Convertir Field → Schema via processView()
-    // Le schema inclut automatiquement showTitle: false pour les cellules de grille
-    const schema = useFieldSchema(field, fieldMeta, allFields);
-
-    // Rendre FormWidget en mode readonly
+      return result;
+    }, [field, fieldMeta]);
+    
+    // Utiliser Cell d'Axelor pour l'affichage (comme dans les grilles Axelor standard)
+    // Cell gère automatiquement l'alignement selon le type de données
     return (
-      <FormWidget
-        schema={schema}
-        formAtom={formAtom}
-        readonly={true}
+      <Cell
+        view={view}
+        viewContext={viewContext}
+        data={enrichedField as any}
+        index={index || 0}
+        value={cellData.value}
+        rawValue={cellData.value}
+        record={cellData.data}
+        actionExecutor={actionExecutor}
+        onUpdate={onUpdate}
       />
     );
   },

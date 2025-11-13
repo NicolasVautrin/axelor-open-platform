@@ -4,6 +4,17 @@ import { DataStore } from "@/services/client/data-store";
 import { dxLog } from "@/utils/dev-tools";
 import { convertDxFilterToAxelor } from "./dx-filter-converter";
 import { enableDataSourceDebug } from "./dx-grid-debug";
+import { GridRow } from "@axelor/ui/grid";
+import { getDefaultStore } from "jotai";
+import { selectedRowsListAtom } from "./selectionAtoms";
+
+/**
+ * Options pour la synchronisation de sélection
+ */
+export interface SelectionSyncOptions {
+  setState: (updater: (draft: any) => void) => void;
+  getRows: () => GridRow[];
+}
 
 /**
  * Crée un DataSource DevExtreme qui wrappe le DataStore Axelor
@@ -13,8 +24,13 @@ import { enableDataSourceDebug } from "./dx-grid-debug";
  * - Plus besoin de onSaving custom avec e.cancel = true
  * - refresh().done() fonctionne correctement car reload() retourne une Promise
  * - Architecture plus propre et standard
+ * - Synchronise automatiquement la sélection avec GridState
  */
-export function createDxDataSource(dataStore: DataStore, fieldsToFetch: string[]) {
+export function createDxDataSource(
+  dataStore: DataStore,
+  fieldsToFetch: string[],
+  selectionSync?: SelectionSyncOptions
+) {
   const dxGridStore = new CustomStore({
     key: "id",
 
@@ -186,6 +202,39 @@ export function createDxDataSource(dataStore: DataStore, fieldsToFetch: string[]
 
   // Monkey patches de diagnostic (activables via dx-grid-debug.ts)
   enableDataSourceDebug(dataSource);
+
+  // Synchroniser la sélection (atoms) avec le GridState (state.selectedRows)
+  if (selectionSync) {
+    const { setState, getRows } = selectionSync;
+    const store = getDefaultStore();
+
+    // S'abonner aux changements de sélection via l'atom
+    const unsubscribe = store.sub(selectedRowsListAtom, () => {
+      const selectedKeys = store.get(selectedRowsListAtom);
+      const rows = getRows();
+
+      dxLog("[DxDataSource] Selection changed - selectedKeys:", selectedKeys, "rows count:", rows.length);
+
+      // Convertir les keys en indices dans state.rows
+      const selectedIndices: number[] = [];
+      selectedKeys.forEach((key: any) => {
+        const index = rows.findIndex((row) => row.record?.id === key);
+        if (index !== -1) {
+          selectedIndices.push(index);
+        }
+      });
+
+      dxLog("[DxDataSource] Converted to indices:", selectedIndices);
+
+      // Mettre à jour state.selectedRows pour la toolbar
+      setState((draft) => {
+        draft.selectedRows = selectedIndices.length > 0 ? selectedIndices : null;
+      });
+    });
+
+    // Attacher le unsubscribe au dataSource pour cleanup
+    (dataSource as any)._selectionUnsubscribe = unsubscribe;
+  }
 
   return dataSource;
 }

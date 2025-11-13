@@ -89,7 +89,7 @@ export function getDxCellValue(
     }
   }
 
-  const value = getFieldValue(record, field);
+  let value = getFieldValue(record, field);
 
   // Pour les collections (O2M, M2M) : afficher le nombre d'éléments
   if (Array.isArray(value)) {
@@ -103,6 +103,18 @@ export function getDxCellValue(
       getObjValue(value, `$t:${targetName}`) ||
       getObjValue(value, targetName)
     );
+  }
+
+  // Appliquer la valeur par défaut si la valeur est null/undefined
+  // Compatible avec le mode remote (champs plats) et local (objets)
+  if (value === null || value === undefined) {
+    const defaultValue = fieldMeta?.defaultValue !== undefined
+      ? fieldMeta.defaultValue
+      : field.defaultValue;
+
+    if (defaultValue !== undefined) {
+      value = defaultValue;
+    }
   }
 
   return value;

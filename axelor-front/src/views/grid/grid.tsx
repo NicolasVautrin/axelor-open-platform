@@ -1389,6 +1389,7 @@ function GridInner(props: ViewProps<GridView>) {
                   onEdit={onEdit}
                   state={state}
                   setState={setState}
+                  readonly={readonly}
                 />
               </Suspense>
             ) : (
