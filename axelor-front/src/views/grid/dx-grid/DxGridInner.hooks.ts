@@ -416,3 +416,80 @@ export function useHandleEditingTabNavigation({ dataGridRef }: UseHandleEditingT
     e.newColumnIndex = nextColumn.visibleIndex;
   }, [dataGridRef]);
 }
+
+interface UseHandleRowClickAwayParams {
+  dataGridRef: any;
+  isRowEditingRef: React.MutableRefObject<boolean>;
+  isSavingRef: React.MutableRefObject<boolean>;
+}
+
+/**
+ * Hook pour gérer le clic en dehors de la ligne en édition (auto-save comme Axelor grid)
+ *
+ * Utilise la hiérarchie DOM pour détecter si le clic est dans la ligne en édition,
+ * et détecte les portals (Floating UI, MUI) pour éviter de sauvegarder quand on clique sur des dropdowns.
+ */
+export function useHandleRowClickAway({ dataGridRef, isRowEditingRef, isSavingRef }: UseHandleRowClickAwayParams) {
+  return useCallback(async (event: MouseEvent) => {
+    if (!isRowEditingRef.current || isSavingRef.current) {
+      return;
+    }
+
+    const gridInstance = getGridInstance(dataGridRef);
+    if (!gridInstance) return;
+
+    const clickedElement = event.target as HTMLElement;
+
+    // 1. Récupérer la ligne en édition (celle qui contient les widgets de formulaire)
+    const editingRowKey = gridInstance.option('editing.editRowKey');
+    if (editingRowKey === undefined || editingRowKey === null) {
+      return;
+    }
+
+    const rowIndex = gridInstance.getRowIndexByKey(editingRowKey);
+    if (rowIndex < 0) {
+      return;
+    }
+
+    const rowElement = gridInstance.getRowElement(rowIndex);
+    if (!rowElement || !rowElement[0]) {
+      return;
+    }
+
+    const editingRowDomElement = rowElement[0] as HTMLElement;
+
+    // 2. Vérifier si le clic provient de la ligne en édition ou de ses descendants (widgets, dropdowns, etc.)
+    if (editingRowDomElement.contains(clickedElement)) {
+      return;
+    }
+
+    // 3. Vérifier si le clic est dans un portal (MUI ou Floating UI)
+    // Les portals sont rendus en dehors de la hiérarchie DOM de la ligne
+    // - MUI: .MuiPopover-root, .MuiPopper-root, etc.
+    // - Floating UI (Axelor UI): [data-floating-ui-portal]
+    const isInPortal = clickedElement.closest('.MuiPopover-root, .MuiPopper-root, .MuiAutocomplete-popper, .MuiDialog-root, .MuiDrawer-root, .MuiMenu-root, .MuiTooltip-popper, [data-floating-ui-portal]');
+    if (isInPortal) {
+      return;
+    }
+
+    // 4. Si le clic est en dehors de la ligne en édition ET en dehors des portals, auto-save
+    if (isSavingRef.current) {
+      return;
+    }
+
+    isSavingRef.current = true;
+
+    if (!gridInstance.hasEditData()) {
+      isSavingRef.current = false;
+      return;
+    }
+
+    try {
+      await gridInstance.saveEditData();
+    } catch (error) {
+      console.error("[DxGrid] Auto-save failed:", error);
+    } finally {
+      isSavingRef.current = false;
+    }
+  }, [dataGridRef, isRowEditingRef, isSavingRef]);
+}
