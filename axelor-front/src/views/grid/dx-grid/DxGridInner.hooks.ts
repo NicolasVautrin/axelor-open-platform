@@ -64,9 +64,9 @@ export function useDxColumns({ view, fields, groupByFields, gridStateColumns = [
         }
 
         // Sinon, c'est un field normal
-        // Pour les champs pointés (ex: "user.name"), prendre la partie avant le point
-        const fieldName = field.name.includes('.') ? field.name.split('.')[0] : field.name;
-        const fieldMeta = fields[fieldName];
+        // Pour les champs pointés (ex: "user.name" ou "product.serviceType"), chercher d'abord avec le nom complet
+        // puis fallback sur la première partie (comme Axelor grid.tsx:244)
+        const fieldMeta = fields[field.name] || (field.name.includes('.') ? fields[field.name.split('.')[0]] : undefined);
         const widget = getEffectiveWidget(field, fieldMeta);
         const dataType = mapTypeToDevExtreme(widget, fieldMeta);
 
@@ -95,6 +95,9 @@ export function useDxColumns({ view, fields, groupByFields, gridStateColumns = [
 
         const allowEditing = !field.readonly && !fieldMeta?.readonly;
 
+        // Déterminer l'alignement selon le type de données (comme Axelor)
+        const alignment = dataType === 'number' ? 'right' : 'left';
+
         return {
           isButton: false,
           field,
@@ -112,6 +115,8 @@ export function useDxColumns({ view, fields, groupByFields, gridStateColumns = [
           allowEditing,
           dataType,
           widget,
+          // Alignement selon le type (nombres à droite, texte à gauche)
+          alignment,
           // Appliquer le groupIndex si nécessaire
           groupIndex: groupIndex,
           // Garder la colonne visible même quand elle est groupée
@@ -289,6 +294,7 @@ export function useHandleOptionChanged({ setHasGrouping, triggerSearch, setGridS
             name: dxCol.dataField,
             width: width, // Garder en number comme attendu par GridColumn
             visible: dxCol.visible,
+            visibleIndex: dxCol.visibleIndex, // Sauvegarder l'ordre des colonnes
             groupIndex: dxCol.groupIndex, // Sauvegarder le groupIndex pour la personnalisation
             computed: true, // Marquer comme "calculé" pour le système de sauvegarde Axelor
           };
@@ -303,6 +309,7 @@ export function useHandleOptionChanged({ setHasGrouping, triggerSearch, setGridS
                  oldCol.name !== newCol.name ||
                  oldCol.width !== newCol.width ||
                  oldCol.visible !== newCol.visible ||
+                 oldCol.visibleIndex !== newCol.visibleIndex ||
                  oldCol.groupIndex !== newCol.groupIndex;
         });
 
@@ -328,54 +335,35 @@ export function useHandleEditingTabNavigation({ dataGridRef }: UseHandleEditingT
     const isTabKey = e.event?.keyCode === 9 || e.event?.key === 'Tab';
     if (!isTabKey) return;
 
-    dxLog("[DxGridInner] handleEditingTabNavigation - e.component available:", !!e.component);
     const gridInstance = e.component || getGridInstance(dataGridRef);
     if (!gridInstance) return;
 
     // Vérifier si on est en mode édition de ligne (API publique DevExtreme 25.1)
     const editRowKey = gridInstance.option('editing.editRowKey');
-    if (editRowKey === undefined || editRowKey === null) {
-      dxLog("[DxGridInner] No row in edit mode, ignoring Tab");
-      return;
-    }
+    if (editRowKey === undefined || editRowKey === null) return;
 
     // Récupérer toutes les colonnes visibles et éditables
     const visibleColumns = e.columns || gridInstance.getVisibleColumns();
-    if (!visibleColumns || !Array.isArray(visibleColumns)) {
-      dxLog("[DxGridInner] No visible columns, ignoring Tab");
-      return;
-    }
+    if (!visibleColumns || !Array.isArray(visibleColumns)) return;
 
     const editableColumns = visibleColumns.filter((col: any) =>
       col.allowEditing && col.visible && !col.dataField?.startsWith('$')
     );
 
-    if (editableColumns.length === 0) {
-      dxLog("[DxGridInner] No editable columns, ignoring Tab");
-      return;
-    }
+    if (editableColumns.length === 0) return;
 
     // Vérifier que prevColumnIndex est valide
-    if (e.prevColumnIndex === undefined || e.prevColumnIndex === null || e.prevColumnIndex < 0 || e.prevColumnIndex >= visibleColumns.length) {
-      dxLog("[DxGridInner] Invalid prevColumnIndex:", e.prevColumnIndex);
-      return;
-    }
+    if (e.prevColumnIndex === undefined || e.prevColumnIndex === null || e.prevColumnIndex < 0 || e.prevColumnIndex >= visibleColumns.length) return;
 
     // Trouver l'index de la colonne actuelle parmi les colonnes éditables
     const currentColumn = visibleColumns[e.prevColumnIndex];
-    if (!currentColumn) {
-      dxLog("[DxGridInner] No current column at index:", e.prevColumnIndex);
-      return;
-    }
+    if (!currentColumn) return;
 
     const currentEditableIdx = editableColumns.findIndex(
       (col: any) => col.dataField === currentColumn.dataField
     );
 
-    if (currentEditableIdx === -1) {
-      dxLog("[DxGridInner] Current column is not editable:", currentColumn.dataField);
-      return;
-    }
+    if (currentEditableIdx === -1) return;
 
     // Calculer la prochaine colonne éditable
     const isShiftPressed = e.event?.shiftKey;
@@ -398,23 +386,243 @@ export function useHandleEditingTabNavigation({ dataGridRef }: UseHandleEditingT
     }
 
     const nextColumn = editableColumns[nextEditableIdx];
-
-    if (!nextColumn) {
-      dxLog("[DxGridInner] No next column at editableIdx:", nextEditableIdx);
-      return;
-    }
-
-    if (nextColumn.visibleIndex === undefined || nextColumn.visibleIndex === null) {
-      dxLog("[DxGridInner] Next column has no visibleIndex:", nextColumn.dataField);
-      return;
-    }
-
-    dxLog("[DxGridInner] Tab navigation: from", currentColumn.dataField, "to", nextColumn.dataField);
+    if (!nextColumn) return;
+    if (nextColumn.visibleIndex === undefined || nextColumn.visibleIndex === null) return;
 
     // Modifier les index pour naviguer vers la prochaine colonne éditable dans la MÊME ligne
     e.newRowIndex = e.prevRowIndex; // IMPORTANT: toujours rester dans la même ligne
     e.newColumnIndex = nextColumn.visibleIndex;
   }, [dataGridRef]);
+}
+
+/**
+ * Hook pour intercepter Tab en mode édition et forcer la boucle dans la ligne
+ *
+ * DevExtreme n'a pas de propriété `tabKeyDirection` (seulement `enterKeyDirection`).
+ * Ce hook intercepte Tab sur la dernière/première cellule pour boucler.
+ *
+ * @param dataGridRef - Référence au DataGrid
+ */
+export function useHandleEditingTabKeyDown({ dataGridRef }: UseHandleEditingTabNavigationParams) {
+  return useCallback((e: any) => {
+    const isTabKey = e.event?.key === 'Tab' || e.event?.keyCode === 9;
+    if (!isTabKey) return;
+
+    const gridInstance = getGridInstance(dataGridRef);
+    if (!gridInstance) return;
+
+    // Vérifier si on est en mode édition
+    const editRowKey = gridInstance.option('editing.editRowKey');
+    if (editRowKey === undefined || editRowKey === null) return;
+
+    // Approche DOM directe (car editCell() ne fonctionne pas avec dataRowRender)
+    // Récupérer la ligne en édition via DOM
+    const rowIndex = gridInstance.getRowIndexByKey(editRowKey);
+    if (rowIndex < 0) return;
+
+    const rowElement = gridInstance.getRowElement(rowIndex);
+    if (!rowElement || !rowElement[0]) return;
+
+    const editingRowDomElement = rowElement[0] as HTMLElement;
+
+    // Trouver tous les inputs éditables dans la ligne (dans l'ordre DOM)
+    const editableInputs = Array.from(
+      editingRowDomElement.querySelectorAll('input:not([readonly]), select:not([disabled]), textarea:not([readonly])')
+    ) as HTMLElement[];
+
+    if (editableInputs.length === 0) return;
+
+    // Trouver l'input actuellement focusé
+    const activeElement = document.activeElement as HTMLElement;
+    const currentInputIndex = editableInputs.indexOf(activeElement);
+
+    if (currentInputIndex === -1) return;
+
+    const isShiftPressed = e.event?.shiftKey;
+    const isLastInput = !isShiftPressed && currentInputIndex === editableInputs.length - 1;
+    const isFirstInput = isShiftPressed && currentInputIndex === 0;
+
+    // Si on est sur le dernier/premier input, boucler
+    if (isLastInput || isFirstInput) {
+      e.event.preventDefault();
+      e.event.stopPropagation();
+
+      const nextInputIndex = isLastInput ? 0 : editableInputs.length - 1;
+      const nextInput = editableInputs[nextInputIndex];
+
+      if (nextInput) {
+        console.log('[useHandleEditingTabKeyDown] Cycling to input:', {
+          from: currentInputIndex,
+          to: nextInputIndex,
+          totalInputs: editableInputs.length,
+          direction: isShiftPressed ? 'backward' : 'forward'
+        });
+
+        // Focus sur le prochain input
+        setTimeout(() => {
+          nextInput.focus();
+        }, 0);
+      }
+    }
+  }, [dataGridRef]);
+}
+
+/**
+ * Hook pour intercepter Enter en mode édition
+ *
+ * Comportement Axelor :
+ * - Sauvegarde la ligne en cours
+ * - Si dernière ligne : ajoute automatiquement une nouvelle ligne
+ * - Met le focus sur la nouvelle ligne
+ *
+ * Ignore l'action si un dropdown/popup est ouvert (l'utilisateur sélectionne une option).
+ *
+ * @param dataGridRef - Référence au DataGrid
+ */
+export function useHandleEditingEnterKeyDown({ dataGridRef }: UseHandleEditingTabNavigationParams) {
+  return useCallback(async (e: any) => {
+    const isEnterKey = e.event?.key === 'Enter' || e.event?.keyCode === 13;
+    if (!isEnterKey) return;
+
+    const gridInstance = getGridInstance(dataGridRef);
+    if (!gridInstance) return;
+
+    // Vérifier si on est en mode édition
+    const editRowKey = gridInstance.option('editing.editRowKey');
+    if (editRowKey === undefined || editRowKey === null) return;
+
+    // Empêcher le comportement par défaut de DevExtreme (qui pourrait naviguer)
+    e.event.preventDefault();
+    e.event.stopPropagation();
+
+    // Sauvegarder la ligne en cours
+    try {
+      await gridInstance.saveEditData();
+
+      // Vérifier si on était sur la dernière ligne
+      const allRows = gridInstance.getVisibleRows().filter((row: any) => row.rowType === 'data');
+      const editedRowIndex = allRows.findIndex((row: any) => row.key === editRowKey);
+
+      if (editedRowIndex === allRows.length - 1) {
+        // On était sur la dernière ligne → ajouter une nouvelle ligne
+        setTimeout(async () => {
+          await gridInstance.addRow();
+
+          // Attendre que la nouvelle ligne soit créée et rendue, puis mettre le focus sur la première cellule éditable
+          setTimeout(() => {
+            // Récupérer le editRowKey de la nouvelle ligne
+            const newEditRowKey = gridInstance.option('editing.editRowKey');
+            if (newEditRowKey === undefined || newEditRowKey === null) return;
+
+            // Récupérer l'index de la nouvelle ligne
+            const newRowIndex = gridInstance.getRowIndexByKey(newEditRowKey);
+            if (newRowIndex < 0) return;
+
+            // Récupérer l'élément DOM de la nouvelle ligne
+            const newRowElement = gridInstance.getRowElement(newRowIndex);
+            if (!newRowElement || !newRowElement[0]) return;
+
+            const newRowDomElement = newRowElement[0] as HTMLElement;
+
+            // Trouver la première cellule éditable (input, select, textarea)
+            const firstEditableInput = newRowDomElement.querySelector('input:not([readonly]), select:not([disabled]), textarea:not([readonly])') as HTMLElement;
+
+            if (firstEditableInput) {
+              console.log('[useHandleEditingEnterKeyDown] Focusing first editable input in new row');
+              firstEditableInput.focus();
+              // Si c'est un input text, sélectionner tout le texte
+              if (firstEditableInput instanceof HTMLInputElement && firstEditableInput.type === 'text') {
+                firstEditableInput.select();
+              }
+            }
+          }, 100); // Délai pour que la ligne soit rendue
+        }, 100);
+      }
+    } catch (error) {
+      console.error('[DxGrid] Enter save failed:', error);
+    }
+  }, [dataGridRef]);
+}
+
+/**
+ * Hook router pour gérer Tab et Enter en mode édition
+ *
+ * Combine les hooks Tab et Enter pour une gestion centralisée
+ *
+ * @param dataGridRef - Référence au DataGrid
+ */
+export function useHandleEditingKeyDown({ dataGridRef }: UseHandleEditingTabNavigationParams) {
+  const handleTab = useHandleEditingTabKeyDown({ dataGridRef });
+  const handleEnter = useHandleEditingEnterKeyDown({ dataGridRef });
+
+  return useCallback((e: any) => {
+    handleTab(e);
+    handleEnter(e);
+  }, [handleTab, handleEnter]);
+}
+
+/**
+ * Hook pour vérifier si l'utilisateur interagit avec un popup/dropdown dans le contexte d'édition
+ * Retourne une fonction qui vérifie si un élément HTML fait partie d'un portal (MUI ou Floating UI)
+ *
+ * Utilisé pour ignorer les actions clavier/souris quand l'utilisateur interagit avec :
+ * - Dropdowns de Select/AutoComplete
+ * - Dialogs/Modals
+ * - Menus contextuels
+ * - Tooltips
+ */
+function useInRowEditingContext() {
+  return useCallback((element: HTMLElement | null): boolean => {
+    if (!element) return false;
+
+    // Vérifier si l'élément est dans un portal (MUI ou Floating UI)
+    // Les portals sont rendus en dehors de la hiérarchie DOM de la ligne
+    // - MUI: .MuiPopover-root, .MuiPopper-root, etc.
+    // - Floating UI (Axelor UI): [data-floating-ui-portal]
+    // - Axelor Select/Dropdown: [role="listbox"] avec position fixed
+    // - Axelor Modals/Dialogs: [class*="_modal"], [class*="_dialogRoot"]
+    const portalSelectors = [
+      '.MuiPopover-root',
+      '.MuiPopper-root',
+      '.MuiAutocomplete-popper',
+      '.MuiDialog-root',
+      '.MuiDrawer-root',
+      '.MuiMenu-root',
+      '.MuiTooltip-popper',
+      '[data-floating-ui-portal]',
+      '[role="listbox"]',  // Dropdowns Axelor
+      '[role="menu"]',     // Menus contextuels
+      '[role="dialog"]',   // Dialogs
+      '[class*="_modal"]',  // Modales Axelor (CSS modules)
+      '[class*="_dialogRoot"]',  // Dialog root Axelor (CSS modules)
+    ].join(', ');
+
+    return element.closest(portalSelectors) !== null;
+  }, []);
+}
+
+/**
+ * Hook pour vérifier si un popup/dropdown est actuellement ouvert dans le DOM
+ * Retourne une fonction qui vérifie la présence d'un portal dans le document
+ *
+ * Utilisé pour ignorer Enter quand un dropdown est ouvert (même si l'événement vient de l'input)
+ */
+function useIsPopupOpen() {
+  return useCallback((): boolean => {
+    // Vérifier si un portal est présent dans le DOM
+    const portalSelectors = [
+      '.MuiPopover-root',
+      '.MuiPopper-root',
+      '.MuiAutocomplete-popper',
+      '.MuiDialog-root',
+      '.MuiDrawer-root',
+      '.MuiMenu-root',
+      '.MuiTooltip-popper',
+      '[data-floating-ui-portal]',
+    ].join(', ');
+
+    return document.querySelector(portalSelectors) !== null;
+  }, []);
 }
 
 interface UseHandleRowClickAwayParams {
@@ -430,66 +638,115 @@ interface UseHandleRowClickAwayParams {
  * et détecte les portals (Floating UI, MUI) pour éviter de sauvegarder quand on clique sur des dropdowns.
  */
 export function useHandleRowClickAway({ dataGridRef, isRowEditingRef, isSavingRef }: UseHandleRowClickAwayParams) {
+  const isInRowEditingContext = useInRowEditingContext();
+
   return useCallback(async (event: MouseEvent) => {
+    console.log('[handleRowClickAway] Click detected', {
+      isRowEditing: isRowEditingRef.current,
+      isSaving: isSavingRef.current,
+      target: event.target,
+    });
+
     if (!isRowEditingRef.current || isSavingRef.current) {
+      console.log('[handleRowClickAway] EXIT: Not editing or already saving');
       return;
     }
 
     const gridInstance = getGridInstance(dataGridRef);
-    if (!gridInstance) return;
+    if (!gridInstance) {
+      console.log('[handleRowClickAway] EXIT: No grid instance');
+      return;
+    }
 
     const clickedElement = event.target as HTMLElement;
 
     // 1. Récupérer la ligne en édition (celle qui contient les widgets de formulaire)
     const editingRowKey = gridInstance.option('editing.editRowKey');
+    console.log('[handleRowClickAway] editingRowKey:', editingRowKey);
+
     if (editingRowKey === undefined || editingRowKey === null) {
+      console.log('[handleRowClickAway] EXIT: No editing row key');
       return;
     }
 
     const rowIndex = gridInstance.getRowIndexByKey(editingRowKey);
+    console.log('[handleRowClickAway] rowIndex:', rowIndex);
+
     if (rowIndex < 0) {
+      console.log('[handleRowClickAway] EXIT: Invalid row index');
       return;
     }
 
     const rowElement = gridInstance.getRowElement(rowIndex);
+    console.log('[handleRowClickAway] rowElement:', rowElement);
+
     if (!rowElement || !rowElement[0]) {
+      console.log('[handleRowClickAway] EXIT: No row element');
       return;
     }
 
     const editingRowDomElement = rowElement[0] as HTMLElement;
 
     // 2. Vérifier si le clic provient de la ligne en édition ou de ses descendants (widgets, dropdowns, etc.)
-    if (editingRowDomElement.contains(clickedElement)) {
+    const isInsideRow = editingRowDomElement.contains(clickedElement);
+    console.log('[handleRowClickAway] Click inside row?', isInsideRow);
+
+    if (isInsideRow) {
+      console.log('[handleRowClickAway] EXIT: Click inside editing row');
       return;
     }
 
     // 3. Vérifier si le clic est dans un portal (MUI ou Floating UI)
-    // Les portals sont rendus en dehors de la hiérarchie DOM de la ligne
-    // - MUI: .MuiPopover-root, .MuiPopper-root, etc.
-    // - Floating UI (Axelor UI): [data-floating-ui-portal]
-    const isInPortal = clickedElement.closest('.MuiPopover-root, .MuiPopper-root, .MuiAutocomplete-popper, .MuiDialog-root, .MuiDrawer-root, .MuiMenu-root, .MuiTooltip-popper, [data-floating-ui-portal]');
+    const isInPortal = isInRowEditingContext(clickedElement);
+
+    // Construire la chaîne des parents pour déboguer
+    const parentChain: string[] = [];
+    let currentElement: HTMLElement | null = clickedElement;
+    let depth = 0;
+    while (currentElement && depth < 10) {
+      const info = `${currentElement.tagName}.${currentElement.className || '(no-class)'} [role=${currentElement.getAttribute('role') || 'null'}]`;
+      parentChain.push(info);
+      currentElement = currentElement.parentElement;
+      depth++;
+    }
+
+    console.log('[handleRowClickAway] Click in portal?', isInPortal, {
+      clickedElement: clickedElement.outerHTML?.substring(0, 200),
+      className: clickedElement.className,
+      role: clickedElement.getAttribute('role'),
+      parentChain: parentChain,
+      closestListbox: clickedElement.closest('[role="listbox"]'),
+      closestPopper: clickedElement.closest('.MuiPopper-root'),
+      closestFloatingUI: clickedElement.closest('[data-floating-ui-portal]'),
+    });
+
     if (isInPortal) {
+      console.log('[handleRowClickAway] EXIT: Click in portal');
       return;
     }
 
     // 4. Si le clic est en dehors de la ligne en édition ET en dehors des portals, auto-save
     if (isSavingRef.current) {
+      console.log('[handleRowClickAway] EXIT: Already saving (double check)');
       return;
     }
 
+    console.log('[handleRowClickAway] ✅ Proceeding with auto-save');
     isSavingRef.current = true;
 
-    if (!gridInstance.hasEditData()) {
-      isSavingRef.current = false;
-      return;
-    }
-
     try {
-      await gridInstance.saveEditData();
+      if (!gridInstance.hasEditData()) {
+        console.log('[handleRowClickAway] No edit data to save, canceling edit mode');
+        await gridInstance.cancelEditData();
+      } else {
+        console.log('[handleRowClickAway] Calling saveEditData()...');
+        await gridInstance.saveEditData();
+        console.log('[handleRowClickAway] ✅ Save successful');
+      }
     } catch (error) {
       console.error("[DxGrid] Auto-save failed:", error);
     } finally {
       isSavingRef.current = false;
     }
-  }, [dataGridRef, isRowEditingRef, isSavingRef]);
+  }, [dataGridRef, isRowEditingRef, isSavingRef, isInRowEditingContext]);
 }

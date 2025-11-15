@@ -61,6 +61,59 @@ export function getGridInstance(dataGridRef: RefObject<React.ElementRef<typeof D
 }
 
 /**
+ * WORKAROUND: Récupère un élément cellule en accédant directement au DOM
+ *
+ * DevExtreme getCellElement() ne fonctionne pas avec dataRowRender car :
+ * - DevExtreme wrappe notre <tr> dans un <tbody class="dx-row">
+ * - getCellElement() appelle tbody.children() qui retourne les <tr> au lieu des <td>
+ *
+ * Cette fonction contourne le problème en accédant directement au DOM.
+ *
+ * @param dataGridRef - Référence au composant DataGrid
+ * @param rowIndex - Index de la ligne (0-based)
+ * @param columnIndex - Index de la colonne (0-based)
+ * @returns L'élément HTMLTableCellElement ou null si non trouvé
+ */
+export function getCellElementWorkaround(
+  dataGridRef: RefObject<React.ElementRef<typeof DataGrid> | null>,
+  rowIndex: number,
+  columnIndex: number
+): HTMLTableCellElement | null {
+  const gridInstance = getGridInstance(dataGridRef);
+  if (!gridInstance) {
+    console.warn('[getCellElementWorkaround] No grid instance');
+    return null;
+  }
+
+  // Trouver le tbody qui contient les data rows
+  const gridElement = gridInstance.element();
+  const tbody = gridElement?.querySelector('tbody.dx-data-row');
+
+  if (!tbody) {
+    console.warn('[getCellElementWorkaround] tbody.dx-data-row not found');
+    return null;
+  }
+
+  // Récupérer le TR à l'index rowIndex (premier enfant du tbody)
+  const tr = tbody.children[rowIndex] as HTMLElement;
+
+  if (!tr || tr.tagName !== 'TR') {
+    console.warn('[getCellElementWorkaround] TR not found at rowIndex:', rowIndex);
+    return null;
+  }
+
+  // Récupérer la cellule à l'index columnIndex
+  const cell = tr.children[columnIndex] as HTMLTableCellElement;
+
+  if (!cell || cell.tagName !== 'TD') {
+    console.warn('[getCellElementWorkaround] TD not found at columnIndex:', columnIndex);
+    return null;
+  }
+
+  return cell;
+}
+
+/**
  * Extrait la valeur d'affichage pour une cellule (gère les M2O avec targetName)
  *
  * Basé sur getFieldSortValue de grid/builder/utils.ts

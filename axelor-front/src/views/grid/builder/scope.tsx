@@ -33,12 +33,22 @@ export type GridHandler = {
   editIcon?: boolean;
   deleteIcon?: boolean;
   type?: "grid" | "panel-related";
+  gridInstance?: any; // Instance DevExtreme DataGrid (pour DxGrid)
 };
 
 export const GridContext = createContext<GridHandler>({});
 
 export function useGridContext() {
   return useContext(GridContext);
+}
+
+/**
+ * Hook pour accéder à l'instance DevExtreme DataGrid depuis n'importe quel composant enfant
+ * @returns L'instance DevExtreme ou undefined
+ */
+export function useGridInstance() {
+  const { gridInstance } = useGridContext();
+  return gridInstance;
 }
 
 export type GridExpandableEvents = Record<string, Record<number, boolean>>;

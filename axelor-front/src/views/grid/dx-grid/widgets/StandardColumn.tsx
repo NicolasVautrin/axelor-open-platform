@@ -51,6 +51,11 @@ export function getStandardColumnProps({
     lookup: col.lookup,
     calculateCellValue: col.calculateCellValue,
     customizeText: col.customizeText,
+    // Stocker field et fieldMeta pour que DxDisplayRow puisse les utiliser
+    field: col.field,
+    fieldMeta: col.fieldMeta,
+    isButton: col.isButton,
+    button: col.button,
     // Mode affichage : Utiliser Cell d'Axelor via DxDisplayCell
     cellRender: !col.isButton && col.field && col.fieldMeta ? (cellData: any) => {
       return (

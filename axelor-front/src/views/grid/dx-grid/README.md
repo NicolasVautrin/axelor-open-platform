@@ -45,8 +45,11 @@ Cette intégration permet d'utiliser **DevExtreme DataGrid** (v25.1) à la place
 - ✅ Visibilité des colonnes (show/hide)
 - ✅ Formatage avec fonction `format()` Axelor
 - ✅ Valeurs traduites ($t:fieldName)
+- ✅ **Alignement automatique** : Nombres à droite (via `.number` CSS), texte à gauche, sélections exclues
 
 **Fichiers** : `DxGridInner.tsx`, `dx-grid-utils.ts`, `DxDisplayCell.tsx`
+
+**Détails alignement** : Les champs numériques (`DECIMAL`, `INTEGER`, `LONG`) sont automatiquement alignés à droite via la classe CSS `.number` qui applique `justify-content: end`. Les selections et ratings sont exclus de cet alignement même s'ils ont un `serverType` numérique (DxDisplayCell.tsx:135-136).
 
 #### 2. Tri et filtrage (7/7)
 - ✅ Tri multi-colonnes server-side
@@ -85,7 +88,7 @@ Cette intégration permet d'utiliser **DevExtreme DataGrid** (v25.1) à la place
 - ✅ Suppression de lignes
 - ✅ Permissions (canEdit, canDelete, canNew)
 
-**Fichiers** : `DxEditCell.tsx`, `DxEditCellContext.tsx`, `createDxDataSource.ts`
+**Fichiers** : `DxEditCell.tsx`, `DxEditRow.tsx`, `createDxDataSource.ts`
 
 **Widgets supportés** : TextEdit, Selection, DatePicker, ManyToOne, Boolean, Integer, Decimal, tous les FormWidget.
 
@@ -126,9 +129,11 @@ Cette intégration permet d'utiliser **DevExtreme DataGrid** (v25.1) à la place
 - ✅ Sauvegarde état dans gridState
 - ✅ Nettoyage largeurs invalides (NaN, Infinity)
 - ✅ Largeur minimum (100px par défaut)
-- ✅ Ordre des colonnes via visibleIndex
+- ✅ **Ordre des colonnes via visibleIndex** : Persistance complète du réordonnancement
 
 **Fichiers** : `customize.tsx`, `DxGridInner.hooks.ts:297-312`
+
+**Détails** : `useHandleOptionChanged` capture les changements d'ordre de colonnes via `visibleIndex` et les sauvegarde dans `gridState.columns[]`. Le hook détecte les modifications en comparant tous les attributs (name, width, visible, visibleIndex, groupIndex) pour déclencher la sauvegarde uniquement si nécessaire.
 
 #### 9. Permissions (4/4)
 - ✅ canEdit (édition générale + readonly par champ)
@@ -246,14 +251,14 @@ dx-grid/
 ├── dx-grid-utils.ts (263 lignes)         # Utilitaires (IDs, types, format)
 ├── selectionAtoms.ts (116 lignes)        # Sélection atomique (Jotai)
 ├── dx-grid-debug.ts (112 lignes)         # Outils de diagnostic
-├── columns/
-│   ├── StandardColumn.tsx (117 lignes)   # Colonnes normales
-│   ├── SelectColumn.tsx (151 lignes)     # Colonne sélection + Select All
-│   └── EditColumn.tsx (51 lignes)        # Colonne edit-icon
 └── widgets/
-    ├── DxEditCell.tsx (134 lignes)       # Cellule en édition
-    ├── DxDisplayCell.tsx (91 lignes)     # Cellule en affichage
-    ├── DxEditCellContext.tsx (56 lignes) # Cache formAtom
+    ├── DxEditRow.tsx (176 lignes)        # Ligne en mode édition (dataRowRender)
+    ├── DxDisplayRow.tsx (225 lignes)     # Ligne en mode affichage (dataRowComponent)
+    ├── DxEditCell.tsx (205 lignes)       # Cellule en édition
+    ├── DxDisplayCell.tsx (161 lignes)    # Cellule en affichage
+    ├── StandardColumn.tsx (117 lignes)   # Colonnes normales
+    ├── SelectColumn.tsx (151 lignes)     # Colonne sélection + Select All
+    ├── EditColumn.tsx (51 lignes)        # Colonne edit-icon
     └── useFieldSchema.ts (75 lignes)     # Conversion Field → Schema
 ```
 
@@ -302,7 +307,7 @@ Backend Axelor
 1. **atomFamily (Jotai)** : Sélection par ligne sans re-render global
 2. **repaintChangesOnly** : DevExtreme ne re-peint que les changements
 3. **useMemo** : Mémoïsation des colonnes, datasource, groupByFields
-4. **Cache formAtom** : Réutilisation par row key
+4. **formAtom par ligne** : Édition isolée via useFormHandlers()
 5. **React.memo** : DxGridInner mémoïsé
 6. **Lazy initialization** : CustomStore créé une seule fois
 7. **Standard scrolling** : Suffisant pour pages de 50 lignes
@@ -332,6 +337,94 @@ Tous les widgets Axelor sont supportés via `FormWidget` :
 - **Email, Phone, URL** : Liens cliquables
 - **Progress** : Barre de progression
 - **Button** : Boutons d'action
+
+---
+
+## 🔧 Corrections récentes (2025-11-15)
+
+### 1. Alignement automatique des nombres et sélections
+
+**Problème** : Les champs numériques et sélections n'étaient pas correctement alignés dans DxGrid.
+
+**Solution** :
+- Appliqué la classe CSS `.number` aux champs numériques (`DECIMAL`, `INTEGER`, `LONG`) pour alignement à droite via `justify-content: end`
+- Exclusion des selections et ratings de cet alignement même s'ils ont un `serverType` numérique
+
+**Fichiers modifiés** :
+- `DxDisplayCell.tsx:1,135-145` - Import `styles` et détection `isNumeric` avec exclusions
+
+**Code** :
+```typescript
+const isNumeric = ["DECIMAL", "INTEGER", "LONG"].includes(enrichedField.serverType ?? "")
+  && !(enrichedField.selection || enrichedField.widget === "rating");
+
+if (isNumeric) {
+  return (
+    <Box className={styles.number} d="flex" style={{ width: "100%", height: "100%" }}>
+      <Cell {...cellProps} />
+    </Box>
+  );
+}
+```
+
+### 2. Crash en mode édition (dataRowRender)
+
+**Problème** : `TypeError: setValueRef.current is not a function` lors de l'édition de cellules dans DxEditRow.
+
+**Cause** : DxEditCell assumait que `cellData.setValue` serait toujours disponible, mais DxEditRow (utilisant `dataRowRender`) ne le fournit pas.
+
+**Solution** :
+- Ajout d'une vérification de `setValue` avant appel
+- Permet à DxEditCell de fonctionner à la fois en mode `editCellRender` (avec setValue) et `dataRowRender` (sans setValue)
+
+**Fichiers modifiés** :
+- `DxEditCell.tsx:96-100` - Vérification optionnelle de `setValue`
+
+**Code** :
+```typescript
+useEffect(() => {
+  // Seulement si setValue existe et la valeur a changé
+  if (setValueRef.current && fieldValue !== currentValueRef.current) {
+    setValueRef.current(fieldValue);
+  }
+}, [fieldValue]);
+```
+
+### 3. Persistance de l'ordre des colonnes
+
+**Problème** : Les changements d'ordre de colonnes via la personnalisation n'étaient pas sauvegardés.
+
+**Cause** : `useHandleOptionChanged` sauvegardait les colonnes mais omettait la propriété `visibleIndex` qui contrôle l'ordre.
+
+**Solution** :
+- Ajout de `visibleIndex` aux données sauvegardées dans `gridState.columns[]`
+- Ajout de `visibleIndex` à la comparaison `hasChanges` pour détecter les modifications d'ordre
+
+**Fichiers modifiés** :
+- `DxGridInner.hooks.ts:297` - Ajout `visibleIndex: dxCol.visibleIndex`
+- `DxGridInner.hooks.ts:312` - Ajout `oldCol.visibleIndex !== newCol.visibleIndex`
+
+**Code** :
+```typescript
+return {
+  name: dxCol.dataField,
+  width: width,
+  visible: dxCol.visible,
+  visibleIndex: dxCol.visibleIndex, // ← Ajouté
+  groupIndex: dxCol.groupIndex,
+  computed: true,
+};
+
+const hasChanges = updatedColumns.some((newCol: any, index: number) => {
+  const oldCol = existingAxelorColumns[index];
+  return !oldCol ||
+         oldCol.name !== newCol.name ||
+         oldCol.width !== newCol.width ||
+         oldCol.visible !== newCol.visible ||
+         oldCol.visibleIndex !== newCol.visibleIndex ||  // ← Ajouté
+         oldCol.groupIndex !== newCol.groupIndex;
+});
+```
 
 ---
 

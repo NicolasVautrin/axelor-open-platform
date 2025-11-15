@@ -50,7 +50,8 @@
       "mcp__postgres__list_tables",
       "Bash(git ls-tree:*)",
       "Bash(echo:*)",
-      "Bash(\"C:\\Users\\nicolasv\\axelor-open-platform\\axelor-front\\src\\views\\grid\\widgets\\single-select\\index.ts\")"
+      "Bash(\"C:\\Users\\nicolasv\\axelor-open-platform\\axelor-front\\src\\views\\grid\\widgets\\single-select\\index.ts\")",
+      "WebFetch(domain:github.com)"
     ],
     "ask": [
       "Edit",

@@ -37,6 +37,10 @@ export function useFieldSchema(
       // Active les widgets spécialisés grid (ex: TextEdit avec popup)
       inGridEditor: true,
 
+      // Copier les triggers depuis le Field
+      onChange: field.onChange,
+      onSelect: field.onSelect,
+
       // Initialiser widgetAttrs comme objet vide pour éviter les erreurs
       // processView() va le remplir avec les bonnes valeurs
       widgetAttrs: {},
