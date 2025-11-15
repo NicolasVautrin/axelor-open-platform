@@ -1,8 +1,10 @@
-import React from "react";
+import React, { useRef, useEffect } from "react";
+import { ScopeProvider } from "bunshi/react";
 import { ClickAwayListener } from "@axelor/ui";
 import type { GridView } from "@/services/client/meta.types";
 import type { DataContext, DataRecord } from "@/services/client/data.types";
 import { useFormHandlers } from "@/views/form/builder/form";
+import { FormScope, ActionDataHandler } from "@/views/form/builder/scope";
 
 interface DxEditRowProps {
   /** Données de la ligne (row.data) */
@@ -22,7 +24,7 @@ interface DxEditRowProps {
   /** Update handler */
   onUpdate?: (record: any) => Promise<any>;
   /** Handler pour clic en dehors de la ligne (auto-save) */
-  onClickAway?: (event: Event) => void;
+  onClickAway?: (event: Event) => void | Promise<void>;
 }
 
 /**
@@ -35,24 +37,44 @@ interface DxEditRowProps {
 export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
   const { rowData, rowKey, columns, columnPropsMap, view, fields, viewContext, onUpdate, onClickAway } = props;
 
-  // ✅ SOLUTION : Utiliser useFormHandlers() pour créer le formAtom avec triggers automatiques
-  // useFormHandlers() crée automatiquement les valueAtoms pour chaque champ
-  // Ces valueAtoms déclenchent les triggers onChange/onSelect quand la valeur change
-  const { formAtom, actionExecutor } = useFormHandlers(
+  // ✅ SOLUTION : Mémoriser rowData initial pour éviter de recréer formAtom
+  // quand rowData change (à cause des modifications de cellule)
+  const initialRowDataRef = useRef(rowData);
+  if (!initialRowDataRef.current) {
+    initialRowDataRef.current = rowData;
+  }
+
+  console.log('[DxEditRow] Rendering row', rowKey, 'with rowData:', rowData);
+
+  const { formAtom, actionExecutor, actionHandler, recordHandler } = useFormHandlers(
     {
       view,
       fields,
       model: view.model,
     } as any,
-    rowData,
+    initialRowDataRef.current, // Toujours utiliser le rowData initial
     {
-      context: viewContext,
+      // Ne pas passer de context pour éviter la propagation au parent
     }
   );
 
+  // Ref pour la ligne <tr> pour accéder aux inputs après le rendu
+  const rowRef = useRef<HTMLTableRowElement>(null);
+
+  // Fix Tab navigation : définir tabIndex={-1} sur les inputs readonly
+  // pour que le browser les saute lors de la navigation Tab
+  useEffect(() => {
+    if (rowRef.current) {
+      const readonlyInputs = rowRef.current.querySelectorAll('input[readonly]');
+      readonlyInputs.forEach((input) => {
+        (input as HTMLInputElement).tabIndex = -1;
+      });
+    }
+  }, [rowKey]); // Re-run quand la ligne change
+
   // Construire le contenu de la ligne (tr) avec les cellules
   const rowContent = (
-    <tr className="dx-row dx-data-row dx-row-lines">
+    <tr ref={rowRef} className="dx-row dx-data-row dx-row-lines">
       {columns.map((col: any, index: number) => {
         // Colonnes sans dataField (système) → cellule vide
         if (!col.dataField) {
@@ -132,13 +154,31 @@ export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
     </tr>
   );
 
+  // Wrapper le contenu dans ScopeProvider pour injecter le bon actionExecutor
+  // Cela permet à FormWidget d'utiliser l'actionExecutor de la grid row au lieu de celui du parent form
+  const wrappedContent = (
+    <ScopeProvider
+      scope={FormScope}
+      value={{
+        formAtom,
+        actionExecutor,
+        actionHandler,
+        recordHandler,
+      }}
+    >
+      {/* ActionDataHandler gère l'application des valeurs/attrs retournées par les actions */}
+      <ActionDataHandler formAtom={formAtom} />
+      {rowContent}
+    </ScopeProvider>
+  );
+
   // Si onClickAway est défini, utiliser ClickAwayListener (comme Axelor grid)
   // ClickAwayListener gère automatiquement le timing et évite de capturer le clic initial
   return onClickAway ? (
     <ClickAwayListener onClickAway={onClickAway}>
-      {rowContent}
+      {wrappedContent}
     </ClickAwayListener>
-  ) : rowContent;
+  ) : wrappedContent;
 }, (prev, next) => {
   // Comparaison custom pour éviter re-renders inutiles
   // IMPORTANT : On ignore les changements de rowData pendant l'édition

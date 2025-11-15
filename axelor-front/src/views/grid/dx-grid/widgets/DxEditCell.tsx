@@ -1,11 +1,11 @@
 import React, { useMemo, useEffect, useRef } from "react";
-import { useAtomValue, useSetAtom } from "jotai";
+import { useAtomValue } from "jotai";
 import { selectAtom } from "jotai/utils";
 import { FormWidget } from "@/views/form/builder";
 import { useFieldSchema } from "./useFieldSchema";
-import { useGridInstance } from "@/views/grid/builder/scope";
 import type { Field, GridView } from "@/services/client/meta.types";
 import type { DataRecord, DataContext } from "@/services/client/data.types";
+import type { FormState } from "@/views/form/builder/types";
 
 interface DxEditCellProps {
   /** Données DevExtreme (row, column, value, setValue) */
@@ -68,12 +68,10 @@ export const DxEditCell = React.memo(
     const schema = useFieldSchema(field, fieldMeta, allFields);
 
     // 3. SPÉCIFICITÉ DX: Synchroniser formAtom.record[field.name] → cellData.setValue()
-    const setFormAtom = useSetAtom(formAtom);
-
     // Écouter les changements de la valeur dans le formAtom
     const fieldValue = useAtomValue(
       useMemo(
-        () => selectAtom(formAtom, (state) => state.record[field.name]),
+        () => selectAtom(formAtom, (state: FormState) => state.record[field.name]),
         [formAtom, field.name]
       )
     );
@@ -86,85 +84,18 @@ export const DxEditCell = React.memo(
     setValueRef.current = cellData.setValue;
     currentValueRef.current = cellData.value;
 
-    // Récupérer gridInstance via Context pour notifier DevExtreme des changements
-    const gridInstance = useGridInstance();
-
-    // Propager les changements vers DevExtreme
+    // Propager les changements vers DevExtreme via setValue
     useEffect(() => {
-      // Mode 1: editCellRender (utilise setValue si disponible)
       if (setValueRef.current && fieldValue !== currentValueRef.current) {
         setValueRef.current(fieldValue);
-        return;
       }
+    }, [fieldValue]);
 
-      // Mode 2: dataRowRender (utilise cellValue pour notifier DevExtreme)
-      if (gridInstance && fieldValue !== currentValueRef.current) {
-        const rowIndex = gridInstance.getRowIndexByKey(rowKey);
-        if (rowIndex >= 0) {
-          console.log('[DxEditCell] Notifying DevExtreme of change via cellValue()', {
-            field: field.name,
-            rowIndex,
-            rowKey,
-            oldValue: currentValueRef.current,
-            newValue: fieldValue,
-          });
-          gridInstance.cellValue(rowIndex, field.name, fieldValue);
-        }
-      }
-    }, [fieldValue, gridInstance, rowKey, field.name]);
+    // NOTE: Le trigger onChange est maintenant géré automatiquement par le système Axelor standard (valueAtom)
+    // grâce au ScopeProvider dans DxEditRow qui injecte le bon actionExecutor.
+    // Pas besoin de dupliquer le code ici !
 
-    // Trigger onChange : exécuter l'action quand la valeur change
-    const prevFieldValueRef = useRef(fieldValue);
-
-    useEffect(() => {
-      // Détecter le changement de valeur (pas le premier render)
-      if (prevFieldValueRef.current !== undefined && prevFieldValueRef.current !== fieldValue) {
-        console.log('[DxEditCell] Value changed:', {
-          field: field.name,
-          oldValue: prevFieldValueRef.current,
-          newValue: fieldValue,
-          hasOnChange: !!schema.onChange,
-          onChange: schema.onChange
-        });
-
-        // Vérifier si le field a un trigger onChange
-        if (schema.onChange) {
-          console.log('[DxEditCell] Executing onChange trigger:', schema.onChange);
-          console.log('[DxEditCell] Context (cellData.data):', cellData.data);
-          console.log('[DxEditCell] formAtom record:', formAtom);
-
-          // Exécuter l'action onChange
-          actionExecutor.execute(schema.onChange, {
-            context: cellData.data, // Record complet de la ligne
-          }).then((actionResult) => {
-            console.log('[DxEditCell] onChange action result:', actionResult);
-
-            // Traiter la réponse de l'action
-            if (actionResult) {
-              // 1. Si l'action retourne des valeurs à mettre à jour (setValue)
-              if (actionResult.values) {
-                console.log('[DxEditCell] Updating formAtom with values:', actionResult.values);
-                setFormAtom((prev) => ({
-                  ...prev,
-                  record: { ...prev.record, ...actionResult.values }
-                }));
-              }
-
-              // 2. Les messages flash (setFlash) sont gérés automatiquement par actionExecutor
-
-              // 3. Les erreurs (setError) sont gérées automatiquement par actionExecutor
-
-              // 4. Les attrs (setAttrs) pour modifier readonly/hidden/etc. sont gérés par actionExecutor
-            }
-          }).catch((error) => {
-            console.error('[DxEditCell] Error executing onChange trigger:', error);
-          });
-        }
-      }
-      prevFieldValueRef.current = fieldValue;
-    }, [fieldValue, schema.onChange, actionExecutor, cellData.data, setFormAtom]);
-
-    // 4. Rendre FormWidget avec le widget approprié
+    // Rendre FormWidget avec le widget approprié
     // FormWidget détermine automatiquement le widget via useWidget():
     // - inGridEditor ? TextEdit : Text
     // - widget override ? Selection : serverType

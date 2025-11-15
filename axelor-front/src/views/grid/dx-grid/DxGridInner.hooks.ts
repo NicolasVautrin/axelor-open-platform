@@ -480,6 +480,8 @@ export function useHandleEditingTabKeyDown({ dataGridRef }: UseHandleEditingTabN
  * @param dataGridRef - Référence au DataGrid
  */
 export function useHandleEditingEnterKeyDown({ dataGridRef }: UseHandleEditingTabNavigationParams) {
+  const isPopupOpen = useIsPopupOpen();
+
   return useCallback(async (e: any) => {
     const isEnterKey = e.event?.key === 'Enter' || e.event?.keyCode === 13;
     if (!isEnterKey) return;
@@ -490,6 +492,23 @@ export function useHandleEditingEnterKeyDown({ dataGridRef }: UseHandleEditingTa
     // Vérifier si on est en mode édition
     const editRowKey = gridInstance.option('editing.editRowKey');
     if (editRowKey === undefined || editRowKey === null) return;
+
+    const popupOpen = isPopupOpen();
+    const alreadyPrevented = e.event?.defaultPrevented;
+
+    // CRITIQUE : Si un composant enfant (Select) a déjà appelé preventDefault(),
+    // c'est qu'il gère l'événement (sélection dans dropdown) → on ne fait rien
+    // Le Select Axelor appelle preventDefault() quand activeIndex !== null
+    if (alreadyPrevented) {
+      console.log('[useHandleEditingEnterKeyDown] Event already prevented by child component, ignoring');
+      return;
+    }
+
+    // Backup: Ignorer l'Enter si un popup/dropdown est ouvert (au cas où preventDefault n'aurait pas été appelé)
+    if (popupOpen) {
+      console.log('[useHandleEditingEnterKeyDown] Popup open, ignoring Enter');
+      return;
+    }
 
     // Empêcher le comportement par défaut de DevExtreme (qui pourrait naviguer)
     e.event.preventDefault();
@@ -541,7 +560,7 @@ export function useHandleEditingEnterKeyDown({ dataGridRef }: UseHandleEditingTa
     } catch (error) {
       console.error('[DxGrid] Enter save failed:', error);
     }
-  }, [dataGridRef]);
+  }, [dataGridRef, isPopupOpen]);
 }
 
 /**
@@ -640,7 +659,7 @@ interface UseHandleRowClickAwayParams {
 export function useHandleRowClickAway({ dataGridRef, isRowEditingRef, isSavingRef }: UseHandleRowClickAwayParams) {
   const isInRowEditingContext = useInRowEditingContext();
 
-  return useCallback(async (event: MouseEvent) => {
+  return useCallback(async (event: Event) => {
     console.log('[handleRowClickAway] Click detected', {
       isRowEditing: isRowEditingRef.current,
       isSaving: isSavingRef.current,

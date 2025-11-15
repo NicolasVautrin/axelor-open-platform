@@ -893,6 +893,7 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
       // Le formAtom est maintenant créé par DxEditRow via useFormHandlers()
       return (
         <DxEditRow
+          key={rowKey}  // ✅ Clé stable pour éviter démontage/remontage lors des re-renders DevExtreme
           rowData={data}
           rowKey={rowKey}
           columns={rowInfo.columns}  // Utiliser rowInfo.columns (inclut les colonnes système)
@@ -930,12 +931,10 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
   //          Sinon, utiliser !editable && readonly
   const gridContext = useMemo(() => {
     const contextReadonly = isLocalMode ? readonly : (!editable && readonly);
-    const gridInstance = getGridInstance(dataGridRef);
     return {
       readonly: contextReadonly,
-      gridInstance, // Rendre gridInstance accessible via Context
     };
-  }, [editable, readonly, view.editable, isLocalMode, dataGridRef]);
+  }, [editable, readonly, view.editable, isLocalMode]);
 
   return (
     <GridContext.Provider value={gridContext}>
