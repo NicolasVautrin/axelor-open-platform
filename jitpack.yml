@@ -1,4 +1,10 @@
 jdk:
   - openjdk11
+before_install:
+  - curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+  - export NVM_DIR="$HOME/.nvm"
+  - source "$NVM_DIR/nvm.sh"
+  - nvm install 20
+  - nvm use 20
 install:
   - ./gradlew clean build publish -x test --stacktrace
