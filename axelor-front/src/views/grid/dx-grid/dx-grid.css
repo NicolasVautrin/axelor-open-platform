@@ -1,0 +1,156 @@
+/**
+ * Styles pour les widgets Axelor UI dans les cellules DevExtreme DataGrid
+ */
+
+/* ===== HEADERS - DevExtreme Grid ===== */
+
+/* Styliser les headers des grilles DevExtreme (style Axelor) */
+.dx-datagrid-headers .dx-datagrid-table td[role="columnheader"] {
+  text-align: left !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  color: rgb(90, 90, 124) !important;
+}
+
+/* Centrer le header de la colonne de sélection */
+.dx-datagrid-headers .dx-datagrid-table td[aria-colindex="1"] {
+  text-align: center !important;
+}
+
+/* Styliser le contenu interne des headers DevExtreme */
+.dx-datagrid-headers .dx-header-row td {
+  text-align: left !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  color: rgb(90, 90, 124) !important;
+}
+
+/* ===== HEADERS - Axelor Grid dans contexte DxGrid ===== */
+
+/* Centrer les headers des grilles Axelor affichées dans une vue DxGrid */
+.dx-grid [class*="headerColumnTitle"] {
+  justify-content: center !important;
+  text-align: center;
+}
+
+/* Centrer le conteneur de colonne */
+.dx-grid [class*="_column_"][class*="_header_"] > div {
+  justify-content: center !important;
+}
+
+/* Centrer le span interne avec le texte */
+.dx-grid [class*="headerColumnTitle"] > span {
+  justify-content: center !important;
+}
+
+/* ===== CELLULES ===== */
+
+/* Cellules en mode édition - ajuster le padding pour les widgets Axelor */
+.dx-datagrid .dx-editor-cell {
+  padding: 4px 8px !important;
+  vertical-align: middle;
+  overflow: hidden; /* Empêcher le débordement */
+}
+
+/* Wrapper pour les widgets Axelor dans les cellules - contraindre la largeur */
+.dx-grid-cell-widget {
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow: hidden;
+  display: block;
+}
+
+/* Forcer tous les enfants du wrapper à respecter la largeur */
+.dx-grid-cell-widget > * {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+/* Aligner les inputs numériques à gauche en mode édition (comme Axelor) */
+.dx-datagrid .dx-editor-cell input[type="number"] {
+  text-align: left !important;
+}
+
+/* Réduire la hauteur des inputs Axelor dans les cellules */
+.dx-datagrid .dx-editor-cell input[type="text"],
+.dx-datagrid .dx-editor-cell input[type="number"],
+.dx-datagrid .dx-editor-cell select {
+  min-height: 28px;
+  height: 28px;
+  padding: 2px 8px;
+}
+
+/* Ajuster les number inputs Axelor avec leurs boutons */
+.dx-datagrid .dx-editor-cell input[type="number"] {
+  padding-right: 24px; /* Espace pour les boutons +/- */
+}
+
+/* Ajuster les selects Axelor */
+.dx-datagrid .dx-editor-cell select {
+  padding-right: 24px; /* Espace pour la flèche */
+}
+
+/* Conteneurs de widgets Axelor - retirer les marges et contraindre la largeur */
+.dx-datagrid .dx-editor-cell > div[class*="_container"] {
+  margin: 0;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+/* Forcer les widgets Axelor UI (Select, AutoComplete, etc.) à respecter la largeur de la cellule */
+.dx-datagrid .dx-editor-cell [class*="Select-root"],
+.dx-datagrid .dx-editor-cell [class*="AutoComplete-root"],
+.dx-datagrid .dx-editor-cell [class*="Input-root"] {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+/* Contraindre le control interne des Select Axelor */
+.dx-datagrid .dx-editor-cell [class*="Select-control"] {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+/* Empêcher le débordement des dropdowns */
+.dx-datagrid .dx-editor-cell [class*="Select-menu"] {
+  max-width: 100%;
+}
+
+/* Ajuster les boutons +/- des number inputs Axelor */
+.dx-datagrid .dx-editor-cell div[class*="_buttons"] {
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* Réduire l'espace des icônes dans les boutons number */
+.dx-datagrid .dx-editor-cell div[class*="_buttons"] span {
+  height: 12px;
+  line-height: 12px;
+}
+
+/* Ajuster la hauteur des lignes pour accommoder les widgets */
+.dx-datagrid-rowsview .dx-data-row {
+  min-height: 36px;
+}
+
+/* Cellules normales (non-éditées) */
+.dx-datagrid-rowsview .dx-data-row td:not(.dx-editor-cell) {
+  padding: 6px 8px;
+  vertical-align: middle;
+}
+
+/* Aligner les valeurs numériques à droite en lecture seule (comme Axelor) */
+/* DevExtreme ajoute automatiquement l'attribut aria-label avec le nom de la colonne */
+.dx-datagrid-rowsview .dx-data-row td:not(.dx-editor-cell)[aria-label*="Prix"],
+.dx-datagrid-rowsview .dx-data-row td:not(.dx-editor-cell)[aria-label*="prix"],
+.dx-datagrid-rowsview .dx-data-row td:not(.dx-editor-cell)[aria-label*="Montant"],
+.dx-datagrid-rowsview .dx-data-row td:not(.dx-editor-cell)[aria-label*="montant"],
+.dx-datagrid-rowsview .dx-data-row td:not(.dx-editor-cell)[aria-label*="Ordre"],
+.dx-datagrid-rowsview .dx-data-row td:not(.dx-editor-cell)[aria-label*="%"],
+.dx-datagrid-rowsview .dx-data-row td:not(.dx-editor-cell)[aria-label*="Quantité"],
+.dx-datagrid-rowsview .dx-data-row td:not(.dx-editor-cell)[aria-label*="quantité"] {
+  text-align: right !important;
+}

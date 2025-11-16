@@ -1,0 +1,6 @@
+{
+  "enabledMcpjsonServers": [
+    "jdwp-inspector"
+  ],
+  "enableAllProjectMcpServers": true
+}
