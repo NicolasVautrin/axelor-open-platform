@@ -41,7 +41,7 @@ import { useHilites } from "@/hooks/use-parser";
 import { createEvalContext } from "@/hooks/use-parser/context";
 import { parseExpression } from "@/hooks/use-parser/utils";
 import { useViewAction } from "@/view-containers/views/scope";
-import { useActionExecutor } from "@/views/form/builder/scope";
+import { useActionExecutor, useFormScope } from "@/views/form/builder/scope";
 import { createFormAtom } from "@/views/form/builder/atoms";
 import { legacyClassNames } from "@/styles/legacy";
 import { GridContext } from "../builder/scope";
@@ -62,8 +62,7 @@ import { createDxDataSource } from "./createDxDataSource";
 import { createLocalDxDataSource } from "./createLocalDxDataSource";
 import { convertDxFilterToAxelor } from "./dx-filter-converter";
 import { enableDxGridDebug } from "./dx-grid-debug";
-import { DxEditRow } from "./widgets/DxEditRow";
-import { DxDisplayRow } from "./widgets/DxDisplayRow";
+import { useDxRow } from "./widgets/DxRow";
 import { useGridState } from "../builder/utils";
 import { useCustomizePopup } from "../builder/customize";
 
@@ -138,6 +137,22 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
   // Détecter le mode local (OneToMany) vs distant (grid normale)
   const isLocalMode = localRecords !== undefined;
 
+  // En mode local (O2M), récupérer le formAtom du parent pour les triggers
+  // IMPORTANT: useFormScope() doit être appelé inconditionnellement (règles des hooks)
+  const parentScope = useFormScope();
+
+  // ✅ OPTIMISATION: Stabiliser parentFormAtom avec useRef pour éviter les re-renders
+  // parentScope change de référence à chaque render du parent, même si formAtom est identique
+  const parentFormAtomRef = useRef<any>(undefined);
+  const currentParentFormAtom = isLocalMode ? parentScope?.formAtom : undefined;
+
+  // Mettre à jour la ref seulement si la référence de formAtom a vraiment changé
+  if (parentFormAtomRef.current !== currentParentFormAtom) {
+    parentFormAtomRef.current = currentParentFormAtom;
+  }
+
+  const parentFormAtom = parentFormAtomRef.current;
+
   // Calculer editable tôt pour utilisation dans handleCellClick
   const editable = view.editable !== false;
 
@@ -146,6 +161,17 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
 
   // Mutex pour éviter la double sauvegarde (handleCellClick + handleFocusedRowChanged)
   const isSavingRef = useRef(false);
+
+  // Ref pour stocker le formAtom de la ligne en édition (pour récupérer les valeurs lors du save)
+  const editingRowFormAtomRef = useRef<any>(null);
+
+  // Ref pour stocker le record initial de la ligne en édition (pour comparaison avec isEqual)
+  const initialRecordRef = useRef<DataRecord | null>(null);
+
+  // Callback pour que DxEditRow notifie son formAtom
+  const onEditRowFormAtomReady = useCallback((formAtom: any) => {
+    editingRowFormAtomRef.current = formAtom;
+  }, []);
 
   // OPTIMISATION ANTI-FLICKERING avec atomFamily :
   // Chaque ligne a son propre atom, seules les lignes dont l'état change re-rendent
@@ -396,7 +422,8 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
           onSave: localOnSave,
           onDelete: localOnDelete,
         },
-        selectionSync
+        selectionSync,
+        editingRowFormAtomRef  // ✅ Passer la ref pour lire les valeurs du formAtom
       );
     } else {
       return createDxDataSource(dataStore, fieldsToFetch, selectionSync);
@@ -558,38 +585,29 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
 
   // Gérer le clic sur une cellule pour démarrer l'édition en mode row
   const handleCellClick = useCallback(async (e: any) => {
-    console.log('[handleCellClick] Called', { rowType: e.rowType, key: e.key, dataField: e.column?.dataField });
-
     if (e.rowType !== 'data' || e.key === undefined || e.key === null) {
-      console.log('[handleCellClick] EXIT: Not a data row or no key');
       return;
     }
 
     // Ignorer les clics sur les colonnes système ($select, $edit) et boutons
     if (e.column?.dataField?.startsWith('$')) {
-      console.log('[handleCellClick] EXIT: System column');
       return;
     }
 
     // En mode readonly, sélectionner la ligne au lieu d'éditer
     const contextReadonly = isLocalMode ? readonly : (!editable && readonly);
-    console.log('[handleCellClick] Readonly check', { isLocalMode, readonly, editable, contextReadonly });
     if (contextReadonly) {
-      console.log('[handleCellClick] EXIT: Readonly mode - selecting instead');
       handleToggleSelection(e.key);
       return;
     }
 
     // Vérifier si la colonne est éditable
-    console.log('[handleCellClick] allowEditing', e.column?.allowEditing);
     if (!e.column?.allowEditing) {
-      console.log('[handleCellClick] EXIT: Column not editable');
       return;
     }
 
     const gridInstance = e.component || getGridInstance(dataGridRef);
     if (!gridInstance) {
-      console.log('[handleCellClick] EXIT: No grid instance');
       return;
     }
 
@@ -598,11 +616,9 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
     const isSwitchingRow = currentEditingKey !== undefined &&
                            currentEditingKey !== null &&
                            currentEditingKey !== e.key;
-    console.log('[handleCellClick] Edit state', { currentEditingKey, isSwitchingRow });
 
     // Si on switch de ligne, sauvegarder puis ouvrir la nouvelle ligne
     if (isSwitchingRow) {
-      console.log('[handleCellClick] Switching row - saving first');
       // Empêcher DevExtreme de traiter l'événement immédiatement
       e.handled = true;
 
@@ -613,7 +629,6 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
       const saved = await saveEditDataIfDirty();
 
       if (saved !== false) {
-        console.log('[handleCellClick] Saved - opening new row');
         // Ouvrir la nouvelle ligne en édition
         gridInstance.option('editing.editRowKey', e.key);
 
@@ -622,8 +637,6 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
           const cellElement = gridInstance.getCellElement(newRowIndex, clickedColumnIndex);
           gridInstance.focus(cellElement);
         }
-      } else {
-        console.log('[handleCellClick] Save failed - not opening new row');
       }
     } else {
       // Pas de switch, ouvrir directement
@@ -635,19 +648,14 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
       // Mettre le focus sur la cellule cliquée après que React ait rendu les composants
       // Utiliser getCellElementWorkaround car getCellElement() ne fonctionne pas avec dataRowRender
       const clickedColumnIndex = e.columnIndex;
-      console.log('[handleCellClick] Setting focus timeout', { rowIndex, clickedColumnIndex });
 
       setTimeout(() => {
-        console.log('[handleCellClick] Attempting to focus cell');
-
         const cell = getCellElementWorkaround(dataGridRef, rowIndex, clickedColumnIndex);
 
         if (!cell) {
           console.warn('[handleCellClick] Cell not found');
           return;
         }
-
-        console.log('[handleCellClick] Found cell:', cell);
 
         // Mettre à jour focusedColumnIndex pour que Tab fonctionne
         gridInstance.option('focusedColumnIndex', clickedColumnIndex);
@@ -657,7 +665,6 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
         const input = cell.querySelector('input:not([readonly]), select:not([disabled]), textarea:not([readonly])') as HTMLElement;
 
         if (input) {
-          console.log('[handleCellClick] Focusing input:', input);
           input.focus();
         } else {
           console.warn('[handleCellClick] No focusable input found in cell');
@@ -680,7 +687,14 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
   }, []);
 
   // Intercepter Tab et Enter en mode édition (router vers hooks spécialisés)
-  const handleKeyDown = useHandleEditingKeyDown({ dataGridRef });
+  const handleKeyDown = useHandleEditingKeyDown({
+    dataGridRef,
+    editingRowFormAtomRef,
+    initialRecordRef,
+    localOnUpdate,
+    localOnSave,
+    isLocalMode
+  });
 
   // Gérer l'initialisation d'une nouvelle ligne (utilise le système d'IDs négatifs Axelor)
   const handleInitNewRow = useCallback((e: any) => {
@@ -688,7 +702,24 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
     // Cela évite que DevExtreme génère ses propres clés temporaires (_DX_KEY_...)
     const newId = nextId();
     e.data.id = newId;
-  }, []);
+
+    // ✅ CRITIQUE: Initialiser le record avec les valeurs par défaut des champs
+    // Les widgets Axelor affichent les defaultValue mais ne les propagent pas automatiquement
+    // dans le formState. Il faut donc initialiser le record avec ces valeurs.
+    if (fields) {
+      Object.keys(fields).forEach(fieldName => {
+        const fieldMeta = fields[fieldName];
+        if (fieldMeta.defaultValue !== undefined && fieldMeta.defaultValue !== null) {
+          e.data[fieldName] = fieldMeta.defaultValue;
+        }
+      });
+    }
+
+    // IMPORTANT: Stocker le record initial pour la nouvelle ligne
+    // handleEditingStart n'est PAS appelé pour les nouvelles lignes créées via addRow()
+    // donc on stocke ici directement
+    initialRecordRef.current = { ...e.data };
+  }, [fields]);
 
   // Handler pour synchroniser la sélection DevExtreme avec le GridState Axelor (pour toolbar OneToMany)
   const handleSelectionChanged = useCallback((e: any) => {
@@ -718,14 +749,31 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
 
   // Gérer le clic en dehors de la grille pour auto-save (comme Axelor grid)
   // Ce handler est passé à DxEditRow via ClickAwayListener
-  const handleRowClickAway = useHandleRowClickAway({ dataGridRef, isRowEditingRef, isSavingRef });
+  const handleRowClickAway = useHandleRowClickAway({
+    dataGridRef,
+    isRowEditingRef,
+    isSavingRef,
+    editingRowFormAtomRef,
+    initialRecordRef,
+    localOnUpdate,
+    localOnSave,
+    isLocalMode
+  });
 
   // Gérer le début d'édition d'une ligne
   const handleEditingStart = useCallback((e: any) => {
     isRowEditingRef.current = true;
-    console.log('[DxGridInner] handleEditingStart - Row editing started', {
-      rowKey: e.key,
-    });
+
+    // Stocker le record initial pour comparaison lors du save (pattern Axelor)
+    const gridInstance = getGridInstance(dataGridRef);
+    if (gridInstance) {
+      const visibleRows = gridInstance.getVisibleRows();
+      const editingRow = visibleRows.find((row: any) => row.key === e.key);
+      if (editingRow && editingRow.data) {
+        // Cloner le record pour éviter les modifications par référence
+        initialRecordRef.current = { ...editingRow.data };
+      }
+    }
 
     // Note: Le formAtom est maintenant créé par DxEditRow via useFormHandlers()
     // Le clickAway est géré par ClickAwayListener dans DxEditRow (comme Axelor)
@@ -734,10 +782,6 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
   // Gérer la fin d'édition après sauvegarde
   const handleSaved = useCallback((e: any) => {
     isRowEditingRef.current = false;
-
-    console.log('[DxGridInner] handleSaved', {
-      rowKey: e.key,
-    });
 
     // Retirer le focus pour éviter le cadre bleu persistant
     if (document.activeElement instanceof HTMLElement) {
@@ -750,10 +794,6 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
   // Gérer l'annulation d'édition
   const handleEditCanceled = useCallback((e: any) => {
     isRowEditingRef.current = false;
-
-    console.log('[DxGridInner] handleEditCanceled', {
-      rowKey: e.key,
-    });
 
     // Retirer le focus pour éviter le cadre bleu persistant
     if (document.activeElement instanceof HTMLElement) {
@@ -856,73 +896,36 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
         actionExecutor,
         onUpdate,
         allFields: fields,
-        onCellClick: handleCellClick,
       });
       map.set(colProps.dataField, colProps);
     });
 
     return map;
-  }, [selectionMode, selectColumnProps, view, editColumnProps, columns, context, actionExecutor, onUpdate, fields, handleCellClick]);
+  }, [selectionMode, selectColumnProps, view, editColumnProps, columns, context, onUpdate, fields]);
+  // ✅ actionExecutor et handleCellClick retirés des dépendances :
+  // - actionExecutor est lié au formAtom, pas aux colonnes (passé dynamiquement par DxEditRow/DxDisplayRow)
+  // - handleCellClick est géré au niveau grille via onCellClick={handleCellClick}, pas dans les colonnes
 
   // Monkey patches de diagnostic (activables via dx-grid-debug.ts)
   useEffect(() => {
     return enableDxGridDebug(dataGridRef);
   }, []);
 
-  // Render custom pour les lignes (dataRowRender)
+  // Hook pour rendre les lignes de la grille DevExtreme
   // Utilisé pour rendre un FormRenderer complet quand la ligne est en édition
-  // IMPORTANT: dataRowRender reçoit rowInfo comme prop (voir DevExtreme docs)
-  const CustomRow = useCallback((rowInfo: any) => {
-    // Si pas de data, ne rien rendre (peut arriver pour des lignes virtuelles ou group rows)
-    if (!rowInfo || !rowInfo.data) {
-      console.warn('[DxGridInner] CustomRow - No data provided, returning null');
-      return null;
-    }
-
-    // Vérifier si cette ligne est en mode édition via le gridInstance
-    const gridInstance = getGridInstance(dataGridRef);
-    const editRowKey = gridInstance?.option('editing.editRowKey');
-    const data = rowInfo.data;
-    // ⚠️ rowInfo.key est undefined avec CustomStore/DataSource (keyExpr not applied warning)
-    // Utiliser data.id à la place
-    const rowKey = data.id;
-    const isEditing = editRowKey !== undefined && editRowKey === rowKey;
-
-    // Si la ligne est en mode édition, rendre avec DxEditRow (formulaire)
-    if (isEditing) {
-      // Le formAtom est maintenant créé par DxEditRow via useFormHandlers()
-      return (
-        <DxEditRow
-          key={rowKey}  // ✅ Clé stable pour éviter démontage/remontage lors des re-renders DevExtreme
-          rowData={data}
-          rowKey={rowKey}
-          columns={rowInfo.columns}  // Utiliser rowInfo.columns (inclut les colonnes système)
-          columnPropsMap={columnPropsMap}  // Map de props de colonnes pour lookup O(1)
-          view={view}
-          fields={fields}
-          viewContext={context}
-          onUpdate={onUpdate}
-          onClickAway={handleRowClickAway}  // ClickAwayListener pour auto-save (comme Axelor)
-        />
-      );
-    }
-
-    // Sinon, rendre avec DxDisplayRow (affichage normal)
-    return (
-      <DxDisplayRow
-        row={{ data, key: rowKey }}
-        columns={rowInfo.columns}  // Colonnes DevExtreme (inclut les colonnes système)
-        columnPropsMap={columnPropsMap}  // Map de props de colonnes pour lookup O(1)
-        view={view}
-        fields={fields}
-        viewContext={context}
-        actionExecutor={actionExecutor}
-        onUpdate={onUpdate}
-        onCellClick={handleCellClick}  // Passer handleCellClick pour gérer le click
-        dataGridRef={dataGridRef}  // Passer la ref pour construire l'objet event
-      />
-    );
-  }, [view, fields, context, columns, columnPropsMap, handleCellClick, dataGridRef]);
+  const DxRow = useDxRow({
+    view,
+    fields,
+    context,
+    columnPropsMap,
+    handleCellClick,
+    dataGridRef,
+    handleRowClickAway,
+    onUpdate,
+    actionExecutor,
+    parentFormAtom,
+    onEditRowFormAtomReady,
+  });
 
   // Calculer le contexte de la grille (readonly, etc.) comme Axelor standard grid
   // Pour les grids OneToMany (mode local), readonly vient du formulaire parent
@@ -943,7 +946,7 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
         ref={dataGridRef}
         dataSource={dxDataSource}
         keyExpr="id"
-        dataRowRender={CustomRow}
+        dataRowRender={DxRow}
         showBorders={true}
         rowAlternationEnabled={true}
         hoverStateEnabled={true}

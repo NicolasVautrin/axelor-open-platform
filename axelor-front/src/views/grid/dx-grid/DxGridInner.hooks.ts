@@ -11,6 +11,9 @@ import {
 } from "./dx-grid-utils";
 import { convertDxFilterToAxelor } from "./dx-filter-converter";
 import { dxLog } from "@/utils/dev-tools";
+import { getDefaultStore } from "jotai";
+import isEqual from "lodash/isEqual";
+import { useGetErrors, showErrors } from "@/views/form/form";
 
 interface UseDxColumnsParams {
   view: GridView;
@@ -451,13 +454,6 @@ export function useHandleEditingTabKeyDown({ dataGridRef }: UseHandleEditingTabN
       const nextInput = editableInputs[nextInputIndex];
 
       if (nextInput) {
-        console.log('[useHandleEditingTabKeyDown] Cycling to input:', {
-          from: currentInputIndex,
-          to: nextInputIndex,
-          totalInputs: editableInputs.length,
-          direction: isShiftPressed ? 'backward' : 'forward'
-        });
-
         // Focus sur le prochain input
         setTimeout(() => {
           nextInput.focus();
@@ -467,11 +463,21 @@ export function useHandleEditingTabKeyDown({ dataGridRef }: UseHandleEditingTabN
   }, [dataGridRef]);
 }
 
+interface UseHandleEditingEnterKeyDownParams {
+  dataGridRef: any;
+  // Pattern Axelor : accès au formAtom et handlers pour save manuel
+  editingRowFormAtomRef?: React.MutableRefObject<any>;
+  initialRecordRef?: React.MutableRefObject<DataRecord | null>;
+  localOnUpdate?: (record: DataRecord) => Promise<DataRecord>;
+  localOnSave?: (record: DataRecord) => Promise<DataRecord>;
+  isLocalMode?: boolean;
+}
+
 /**
  * Hook pour intercepter Enter en mode édition
  *
  * Comportement Axelor :
- * - Sauvegarde la ligne en cours
+ * - Sauvegarde la ligne en cours (pattern Axelor si O2M, sinon DevExtreme standard)
  * - Si dernière ligne : ajoute automatiquement une nouvelle ligne
  * - Met le focus sur la nouvelle ligne
  *
@@ -479,8 +485,16 @@ export function useHandleEditingTabKeyDown({ dataGridRef }: UseHandleEditingTabN
  *
  * @param dataGridRef - Référence au DataGrid
  */
-export function useHandleEditingEnterKeyDown({ dataGridRef }: UseHandleEditingTabNavigationParams) {
+export function useHandleEditingEnterKeyDown({
+  dataGridRef,
+  editingRowFormAtomRef,
+  initialRecordRef,
+  localOnUpdate,
+  localOnSave,
+  isLocalMode
+}: UseHandleEditingEnterKeyDownParams) {
   const isPopupOpen = useIsPopupOpen();
+  const getErrors = useGetErrors(); // ← Validation Axelor
 
   return useCallback(async (e: any) => {
     const isEnterKey = e.event?.key === 'Enter' || e.event?.keyCode === 13;
@@ -500,13 +514,11 @@ export function useHandleEditingEnterKeyDown({ dataGridRef }: UseHandleEditingTa
     // c'est qu'il gère l'événement (sélection dans dropdown) → on ne fait rien
     // Le Select Axelor appelle preventDefault() quand activeIndex !== null
     if (alreadyPrevented) {
-      console.log('[useHandleEditingEnterKeyDown] Event already prevented by child component, ignoring');
       return;
     }
 
     // Backup: Ignorer l'Enter si un popup/dropdown est ouvert (au cas où preventDefault n'aurait pas été appelé)
     if (popupOpen) {
-      console.log('[useHandleEditingEnterKeyDown] Popup open, ignoring Enter');
       return;
     }
 
@@ -514,53 +526,58 @@ export function useHandleEditingEnterKeyDown({ dataGridRef }: UseHandleEditingTa
     e.event.preventDefault();
     e.event.stopPropagation();
 
-    // Sauvegarder la ligne en cours
+    // Vérifier si on était sur la dernière ligne AVANT la sauvegarde
+    const allRows = gridInstance.getVisibleRows().filter((row: any) => row.rowType === 'data');
+    const editedRowIndex = allRows.findIndex((row: any) => row.key === editRowKey);
+    const wasLastRow = editedRowIndex === allRows.length - 1;
+
+    // Sauvegarder la ligne en cours (utiliser la fonction factorisée)
     try {
-      await gridInstance.saveEditData();
+      await saveEditingRowAndClose(
+        gridInstance,
+        isLocalMode || false,
+        editingRowFormAtomRef,
+        initialRecordRef,
+        localOnSave,
+        localOnUpdate,
+        getErrors,
+        '[handleEnterKeyDown]'
+      );
 
-      // Vérifier si on était sur la dernière ligne
-      const allRows = gridInstance.getVisibleRows().filter((row: any) => row.rowType === 'data');
-      const editedRowIndex = allRows.findIndex((row: any) => row.key === editRowKey);
-
-      if (editedRowIndex === allRows.length - 1) {
+      if (wasLastRow) {
         // On était sur la dernière ligne → ajouter une nouvelle ligne
+        // Utiliser le même chemin que le bouton "+" de la toolbar:
+        // addRow() → onInitNewRow (définit ID négatif) → onEditingStart (stocke initialRecordRef)
         setTimeout(async () => {
           await gridInstance.addRow();
 
-          // Attendre que la nouvelle ligne soit créée et rendue, puis mettre le focus sur la première cellule éditable
+          // Focus sur la première cellule éditable de la nouvelle ligne
           setTimeout(() => {
-            // Récupérer le editRowKey de la nouvelle ligne
             const newEditRowKey = gridInstance.option('editing.editRowKey');
             if (newEditRowKey === undefined || newEditRowKey === null) return;
 
-            // Récupérer l'index de la nouvelle ligne
             const newRowIndex = gridInstance.getRowIndexByKey(newEditRowKey);
             if (newRowIndex < 0) return;
 
-            // Récupérer l'élément DOM de la nouvelle ligne
             const newRowElement = gridInstance.getRowElement(newRowIndex);
             if (!newRowElement || !newRowElement[0]) return;
 
             const newRowDomElement = newRowElement[0] as HTMLElement;
-
-            // Trouver la première cellule éditable (input, select, textarea)
             const firstEditableInput = newRowDomElement.querySelector('input:not([readonly]), select:not([disabled]), textarea:not([readonly])') as HTMLElement;
 
             if (firstEditableInput) {
-              console.log('[useHandleEditingEnterKeyDown] Focusing first editable input in new row');
               firstEditableInput.focus();
-              // Si c'est un input text, sélectionner tout le texte
               if (firstEditableInput instanceof HTMLInputElement && firstEditableInput.type === 'text') {
                 firstEditableInput.select();
               }
             }
-          }, 100); // Délai pour que la ligne soit rendue
+          }, 300);
         }, 100);
       }
     } catch (error) {
       console.error('[DxGrid] Enter save failed:', error);
     }
-  }, [dataGridRef, isPopupOpen]);
+  }, [dataGridRef, isPopupOpen, editingRowFormAtomRef, initialRecordRef, localOnUpdate, localOnSave, isLocalMode]);
 }
 
 /**
@@ -570,9 +587,23 @@ export function useHandleEditingEnterKeyDown({ dataGridRef }: UseHandleEditingTa
  *
  * @param dataGridRef - Référence au DataGrid
  */
-export function useHandleEditingKeyDown({ dataGridRef }: UseHandleEditingTabNavigationParams) {
+export function useHandleEditingKeyDown({
+  dataGridRef,
+  editingRowFormAtomRef,
+  initialRecordRef,
+  localOnUpdate,
+  localOnSave,
+  isLocalMode
+}: UseHandleEditingEnterKeyDownParams) {
   const handleTab = useHandleEditingTabKeyDown({ dataGridRef });
-  const handleEnter = useHandleEditingEnterKeyDown({ dataGridRef });
+  const handleEnter = useHandleEditingEnterKeyDown({
+    dataGridRef,
+    editingRowFormAtomRef,
+    initialRecordRef,
+    localOnUpdate,
+    localOnSave,
+    isLocalMode
+  });
 
   return useCallback((e: any) => {
     handleTab(e);
@@ -648,32 +679,47 @@ interface UseHandleRowClickAwayParams {
   dataGridRef: any;
   isRowEditingRef: React.MutableRefObject<boolean>;
   isSavingRef: React.MutableRefObject<boolean>;
+  // Pattern Axelor : accès au formAtom et handlers pour save manuel
+  editingRowFormAtomRef?: React.MutableRefObject<any>;
+  initialRecordRef?: React.MutableRefObject<DataRecord | null>;
+  localOnUpdate?: (record: DataRecord) => Promise<DataRecord>;
+  localOnSave?: (record: DataRecord) => Promise<DataRecord>;
+  isLocalMode?: boolean;
 }
 
 /**
  * Hook pour gérer le clic en dehors de la ligne en édition (auto-save comme Axelor grid)
  *
+ * Pattern Axelor :
+ * 1. Blur-focus l'input actif pour finaliser la valeur
+ * 2. Lire le formAtom pour obtenir les valeurs modifiées
+ * 3. Comparer avec le record original (isEqual)
+ * 4. Si changé : appeler onUpdate/onSave directement
+ * 5. Fermer la ligne avec cancelEditData()
+ *
  * Utilise la hiérarchie DOM pour détecter si le clic est dans la ligne en édition,
  * et détecte les portals (Floating UI, MUI) pour éviter de sauvegarder quand on clique sur des dropdowns.
  */
-export function useHandleRowClickAway({ dataGridRef, isRowEditingRef, isSavingRef }: UseHandleRowClickAwayParams) {
+export function useHandleRowClickAway({
+  dataGridRef,
+  isRowEditingRef,
+  isSavingRef,
+  editingRowFormAtomRef,
+  initialRecordRef,
+  localOnUpdate,
+  localOnSave,
+  isLocalMode
+}: UseHandleRowClickAwayParams) {
   const isInRowEditingContext = useInRowEditingContext();
+  const getErrors = useGetErrors(); // ← Validation Axelor
 
   return useCallback(async (event: Event) => {
-    console.log('[handleRowClickAway] Click detected', {
-      isRowEditing: isRowEditingRef.current,
-      isSaving: isSavingRef.current,
-      target: event.target,
-    });
-
     if (!isRowEditingRef.current || isSavingRef.current) {
-      console.log('[handleRowClickAway] EXIT: Not editing or already saving');
       return;
     }
 
     const gridInstance = getGridInstance(dataGridRef);
     if (!gridInstance) {
-      console.log('[handleRowClickAway] EXIT: No grid instance');
       return;
     }
 
@@ -681,26 +727,20 @@ export function useHandleRowClickAway({ dataGridRef, isRowEditingRef, isSavingRe
 
     // 1. Récupérer la ligne en édition (celle qui contient les widgets de formulaire)
     const editingRowKey = gridInstance.option('editing.editRowKey');
-    console.log('[handleRowClickAway] editingRowKey:', editingRowKey);
 
     if (editingRowKey === undefined || editingRowKey === null) {
-      console.log('[handleRowClickAway] EXIT: No editing row key');
       return;
     }
 
     const rowIndex = gridInstance.getRowIndexByKey(editingRowKey);
-    console.log('[handleRowClickAway] rowIndex:', rowIndex);
 
     if (rowIndex < 0) {
-      console.log('[handleRowClickAway] EXIT: Invalid row index');
       return;
     }
 
     const rowElement = gridInstance.getRowElement(rowIndex);
-    console.log('[handleRowClickAway] rowElement:', rowElement);
 
     if (!rowElement || !rowElement[0]) {
-      console.log('[handleRowClickAway] EXIT: No row element');
       return;
     }
 
@@ -708,64 +748,113 @@ export function useHandleRowClickAway({ dataGridRef, isRowEditingRef, isSavingRe
 
     // 2. Vérifier si le clic provient de la ligne en édition ou de ses descendants (widgets, dropdowns, etc.)
     const isInsideRow = editingRowDomElement.contains(clickedElement);
-    console.log('[handleRowClickAway] Click inside row?', isInsideRow);
 
     if (isInsideRow) {
-      console.log('[handleRowClickAway] EXIT: Click inside editing row');
       return;
     }
 
     // 3. Vérifier si le clic est dans un portal (MUI ou Floating UI)
     const isInPortal = isInRowEditingContext(clickedElement);
 
-    // Construire la chaîne des parents pour déboguer
-    const parentChain: string[] = [];
-    let currentElement: HTMLElement | null = clickedElement;
-    let depth = 0;
-    while (currentElement && depth < 10) {
-      const info = `${currentElement.tagName}.${currentElement.className || '(no-class)'} [role=${currentElement.getAttribute('role') || 'null'}]`;
-      parentChain.push(info);
-      currentElement = currentElement.parentElement;
-      depth++;
-    }
-
-    console.log('[handleRowClickAway] Click in portal?', isInPortal, {
-      clickedElement: clickedElement.outerHTML?.substring(0, 200),
-      className: clickedElement.className,
-      role: clickedElement.getAttribute('role'),
-      parentChain: parentChain,
-      closestListbox: clickedElement.closest('[role="listbox"]'),
-      closestPopper: clickedElement.closest('.MuiPopper-root'),
-      closestFloatingUI: clickedElement.closest('[data-floating-ui-portal]'),
-    });
-
     if (isInPortal) {
-      console.log('[handleRowClickAway] EXIT: Click in portal');
       return;
     }
 
     // 4. Si le clic est en dehors de la ligne en édition ET en dehors des portals, auto-save
     if (isSavingRef.current) {
-      console.log('[handleRowClickAway] EXIT: Already saving (double check)');
       return;
     }
 
-    console.log('[handleRowClickAway] ✅ Proceeding with auto-save');
     isSavingRef.current = true;
 
     try {
-      if (!gridInstance.hasEditData()) {
-        console.log('[handleRowClickAway] No edit data to save, canceling edit mode');
-        await gridInstance.cancelEditData();
-      } else {
-        console.log('[handleRowClickAway] Calling saveEditData()...');
-        await gridInstance.saveEditData();
-        console.log('[handleRowClickAway] ✅ Save successful');
-      }
+      // Utiliser la fonction factorisée pour sauvegarder
+      await saveEditingRowAndClose(
+        gridInstance,
+        isLocalMode || false,
+        editingRowFormAtomRef,
+        initialRecordRef,
+        localOnSave,
+        localOnUpdate,
+        getErrors,
+        '[handleRowClickAway]'
+      );
     } catch (error) {
       console.error("[DxGrid] Auto-save failed:", error);
     } finally {
       isSavingRef.current = false;
     }
-  }, [dataGridRef, isRowEditingRef, isSavingRef, isInRowEditingContext]);
+  }, [dataGridRef, isRowEditingRef, isSavingRef, isInRowEditingContext, editingRowFormAtomRef, initialRecordRef, localOnUpdate, localOnSave, isLocalMode]);
+}
+
+/**
+ * Fonction factorisée pour sauvegarder la ligne en édition selon le pattern Axelor
+ * Utilisée par handleRowClickAway ET handleKeyDown (Enter)
+ */
+async function saveEditingRowAndClose(
+  gridInstance: any,
+  isLocalMode: boolean,
+  editingRowFormAtomRef: React.RefObject<any> | undefined,
+  initialRecordRef: React.RefObject<DataRecord | null> | undefined,
+  localOnSave: ((record: any) => Promise<any>) | undefined,
+  localOnUpdate: ((record: any) => Promise<any>) | undefined,
+  getErrors: ((formState?: any) => any) | undefined,
+  logPrefix: string = '[saveEditingRow]'
+) {
+  // Pattern Axelor : Si en mode local (O2M), sauvegarder manuellement via formAtom
+  if (isLocalMode && editingRowFormAtomRef?.current && initialRecordRef?.current) {
+    // 1. Blur-focus l'input actif pour finaliser la valeur (comme Axelor)
+    const activeElement = document.activeElement as HTMLElement;
+    if (activeElement && activeElement.blur) {
+      activeElement.blur();
+      activeElement.focus?.();
+
+      // ⚠️ CRITIQUE: Attendre que les handlers onBlur/onChange se terminent
+      // Sans ce délai, le formState est lu AVANT que la valeur soit propagée
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+
+    // 2. Lire le formAtom pour obtenir les valeurs modifiées
+    const store = getDefaultStore();
+    const formState = store.get(editingRowFormAtomRef.current) as any;
+
+    // 3. Valider les champs required AVANT de sauvegarder (pattern Axelor)
+    if (getErrors) {
+      const errors = getErrors(formState);
+      if (errors) {
+        showErrors(errors);
+        // Ne pas fermer la ligne - garder le mode édition
+        return;
+      }
+    }
+
+    const currentRecord = formState?.record;
+
+    // 3. Comparer avec le record original (isEqual)
+    const isNew = !initialRecordRef.current.id || initialRecordRef.current.id < 0;
+    const hasChanges = !isEqual(initialRecordRef.current, currentRecord);
+
+    // 4. Si changé : appeler onUpdate/onSave directement (comme Axelor)
+    if (hasChanges || isNew) {
+      try {
+        if (isNew && localOnSave) {
+          await localOnSave(currentRecord);
+        } else if (!isNew && localOnUpdate) {
+          await localOnUpdate(currentRecord);
+        }
+      } catch (error) {
+        console.error(`${logPrefix} Save failed:`, error);
+      }
+    }
+
+    // 5. Toujours fermer la ligne avec cancelEditData() (pas saveEditData car on a déjà sauvé)
+    await gridInstance.cancelEditData();
+  } else {
+    // Mode standard DevExtreme (non-O2M ou pas de formAtom)
+    if (!gridInstance.hasEditData()) {
+      await gridInstance.cancelEditData();
+    } else {
+      await gridInstance.saveEditData();
+    }
+  }
 }

@@ -1,10 +1,13 @@
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useMemo } from "react";
 import { ScopeProvider } from "bunshi/react";
 import { ClickAwayListener } from "@axelor/ui";
 import type { GridView } from "@/services/client/meta.types";
 import type { DataContext, DataRecord } from "@/services/client/data.types";
 import { useFormHandlers } from "@/views/form/builder/form";
 import { FormScope, ActionDataHandler } from "@/views/form/builder/scope";
+import { useAsyncEffect } from "@/hooks/use-async-effect";
+import { DxCell } from "./DxCell";
+import { calculateFixedOffsets } from "./columnFixingUtils";
 
 interface DxEditRowProps {
   /** Données de la ligne (row.data) */
@@ -25,6 +28,14 @@ interface DxEditRowProps {
   onUpdate?: (record: any) => Promise<any>;
   /** Handler pour clic en dehors de la ligne (auto-save) */
   onClickAway?: (event: Event) => void | Promise<void>;
+  /** Parent formAtom for O2M context (triggers onChange/onNew with correct context) */
+  parentFormAtom?: any;
+  /** Callback to notify parent when formAtom is ready */
+  onFormAtomReady?: (formAtom: any) => void;
+  /** Instance du DevExtreme DataGrid (pour synchronisation formAtom) */
+  gridInstance?: any;
+  /** Index de la ligne en édition (pour synchronisation formAtom) */
+  rowIndex?: number;
 }
 
 /**
@@ -35,16 +46,14 @@ interface DxEditRowProps {
  * Utilise editCellRender de colProps pour rendre les widgets Axelor.
  */
 export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
-  const { rowData, rowKey, columns, columnPropsMap, view, fields, viewContext, onUpdate, onClickAway } = props;
+  const { rowData, rowKey, columns, columnPropsMap, view, fields, viewContext, onUpdate, onClickAway, parentFormAtom, onFormAtomReady } = props;
 
   // ✅ SOLUTION : Mémoriser rowData initial pour éviter de recréer formAtom
   // quand rowData change (à cause des modifications de cellule)
-  const initialRowDataRef = useRef(rowData);
+  const initialRowDataRef = useRef<DataRecord | null>(null);
   if (!initialRowDataRef.current) {
     initialRowDataRef.current = rowData;
   }
-
-  console.log('[DxEditRow] Rendering row', rowKey, 'with rowData:', rowData);
 
   const { formAtom, actionExecutor, actionHandler, recordHandler } = useFormHandlers(
     {
@@ -54,12 +63,36 @@ export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
     } as any,
     initialRowDataRef.current, // Toujours utiliser le rowData initial
     {
-      // Ne pas passer de context pour éviter la propagation au parent
+      parent: parentFormAtom,  // ← AJOUTER pour que le contexte ait _parent
     }
   );
 
   // Ref pour la ligne <tr> pour accéder aux inputs après le rendu
   const rowRef = useRef<HTMLTableRowElement>(null);
+
+  // Notifier le parent que le formAtom est prêt (pour accès depuis le DataSource)
+  useEffect(() => {
+    onFormAtomReady?.(formAtom);
+  }, [formAtom, onFormAtomReady]);
+
+  // Exécuter les triggers O2M (onNew/onChange) comme le fait FormRenderer
+  // ✅ Utiliser initialRowDataRef pour éviter les re-exécutions quand rowData change
+  useAsyncEffect(async () => {
+    const { onNew } = view;
+    const initialRecord = initialRowDataRef.current;
+    const isNew = (initialRecord?.id ?? 0) < 0 && !initialRecord?._dirty;
+    const onNewAction = isNew && onNew;
+
+    // ✅ Exécuter seulement si isNew (pattern Axelor avec flag _dirty)
+    if (onNewAction) {
+      await actionExecutor.execute(onNewAction);
+      // ✅ Marquer le record comme _dirty pour éviter les ré-exécutions (pattern Axelor)
+      // Même si DxEditRow est démonté/remonté, le check !_dirty empêchera la ré-exécution
+      if (initialRecord) {
+        initialRecord._dirty = true;
+      }
+    }
+  }, [view, actionExecutor, rowKey]);
 
   // Fix Tab navigation : définir tabIndex={-1} sur les inputs readonly
   // pour que le browser les saute lors de la navigation Tab
@@ -72,24 +105,84 @@ export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
     }
   }, [rowKey]); // Re-run quand la ligne change
 
+  // Calculer les offsets pour les colonnes fixées (pour position: sticky)
+  const { leftOffsets, rightOffsets } = useMemo(
+    () => calculateFixedOffsets(columns),
+    [columns]
+  );
+
   // Construire le contenu de la ligne (tr) avec les cellules
-  const rowContent = (
+  // Si onClickAway est défini, wrapper le <tr> avec ClickAwayListener
+  const rowContent = onClickAway ? (
+    <ClickAwayListener onClickAway={onClickAway}>
+      <tr ref={rowRef} className="dx-row dx-data-row dx-row-lines">
+        {columns.map((col: any, index: number) => {
+          const key = col.dataField || `col_${index}`;
+          const leftOffset = leftOffsets.get(col.dataField || col.name || col.caption);
+          const rightOffset = rightOffsets.get(col.dataField || col.name || col.caption);
+
+          // Colonnes sans dataField (système) → cellule vide
+          if (!col.dataField) {
+            return (
+              <DxCell key={key} col={col} leftOffset={leftOffset} rightOffset={rightOffset}>
+                {/* Cellule vide */}
+              </DxCell>
+            );
+          }
+
+          // Lookup O(1) dans la Map des props de colonnes
+          const colProps = columnPropsMap.get(col.dataField);
+
+          // Si la colonne a un editCellRender ou cellRender, l'utiliser
+          // editCellRender en priorité, puis cellRender (fallback pour colonnes sans rendu spécial en édition)
+          if (colProps?.editCellRender || colProps?.cellRender) {
+            const cellData = {
+              data: rowData,
+              value: rowData?.[col.dataField],
+              displayValue: rowData?.[col.dataField],
+              row: { data: rowData, key: rowKey },
+              column: col,
+              rowIndex: index,
+              key: rowKey,
+              // IMPORTANT: Passer formAtom et actionExecutor via cellData
+              formAtom: formAtom,
+              actionExecutor: actionExecutor,
+            };
+
+            // Utiliser editCellRender en priorité, sinon cellRender (fallback)
+            const renderedCell = colProps.editCellRender
+              ? colProps.editCellRender(cellData)
+              : colProps.cellRender(cellData);
+
+            return (
+              <DxCell key={key} col={col} leftOffset={leftOffset} rightOffset={rightOffset}>
+                {renderedCell}
+              </DxCell>
+            );
+          }
+
+          // Sinon, afficher la valeur brute (fallback)
+          return (
+            <DxCell key={key} col={col} leftOffset={leftOffset} rightOffset={rightOffset}>
+              {rowData[col.dataField]}
+            </DxCell>
+          );
+        })}
+      </tr>
+    </ClickAwayListener>
+  ) : (
     <tr ref={rowRef} className="dx-row dx-data-row dx-row-lines">
       {columns.map((col: any, index: number) => {
+        const key = col.dataField || `col_${index}`;
+        const leftOffset = leftOffsets.get(col.dataField || col.name || col.caption);
+        const rightOffset = rightOffsets.get(col.dataField || col.name || col.caption);
+
         // Colonnes sans dataField (système) → cellule vide
         if (!col.dataField) {
           return (
-            <td
-              key={`col_${index}`}
-              className="dx-cell"
-              style={{
-                width: col.width || "auto",
-                minWidth: col.minWidth || "50px",
-                maxWidth: col.width || "none",
-                padding: "4px 8px",
-                overflow: "hidden",
-              }}
-            />
+            <DxCell key={key} col={col} leftOffset={leftOffset} rightOffset={rightOffset}>
+              {/* Cellule vide */}
+            </DxCell>
           );
         }
 
@@ -118,37 +211,17 @@ export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
             : colProps.cellRender(cellData);
 
           return (
-            <td
-              key={col.dataField || index}
-              className="dx-cell"
-              style={{
-                width: col.width || "auto",
-                minWidth: col.minWidth || "50px",
-                maxWidth: col.width || "none",
-                padding: "4px 8px",
-                overflow: "hidden",
-              }}
-            >
+            <DxCell key={key} col={col} leftOffset={leftOffset} rightOffset={rightOffset}>
               {renderedCell}
-            </td>
+            </DxCell>
           );
         }
 
         // Sinon, afficher la valeur brute (fallback)
         return (
-          <td
-            key={col.dataField || index}
-            className="dx-cell"
-            style={{
-              width: col.width || "auto",
-              minWidth: col.minWidth || "50px",
-              maxWidth: col.width || "none",
-              padding: "4px 8px",
-              overflow: "hidden",
-            }}
-          >
+          <DxCell key={key} col={col} leftOffset={leftOffset} rightOffset={rightOffset}>
             {rowData[col.dataField]}
-          </td>
+          </DxCell>
         );
       })}
     </tr>
@@ -156,7 +229,7 @@ export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
 
   // Wrapper le contenu dans ScopeProvider pour injecter le bon actionExecutor
   // Cela permet à FormWidget d'utiliser l'actionExecutor de la grid row au lieu de celui du parent form
-  const wrappedContent = (
+  return (
     <ScopeProvider
       scope={FormScope}
       value={{
@@ -171,14 +244,6 @@ export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
       {rowContent}
     </ScopeProvider>
   );
-
-  // Si onClickAway est défini, utiliser ClickAwayListener (comme Axelor grid)
-  // ClickAwayListener gère automatiquement le timing et évite de capturer le clic initial
-  return onClickAway ? (
-    <ClickAwayListener onClickAway={onClickAway}>
-      {wrappedContent}
-    </ClickAwayListener>
-  ) : wrappedContent;
 }, (prev, next) => {
   // Comparaison custom pour éviter re-renders inutiles
   // IMPORTANT : On ignore les changements de rowData pendant l'édition
@@ -194,23 +259,10 @@ export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
     prev.fields === next.fields &&
     prev.viewContext === next.viewContext &&
     prev.onUpdate === next.onUpdate &&
-    prev.onClickAway === next.onClickAway
+    prev.onClickAway === next.onClickAway &&
+    prev.parentFormAtom === next.parentFormAtom &&
+    prev.onFormAtomReady === next.onFormAtomReady
   );
-
-  if (!isEqual) {
-    console.log('[DxEditRow] Props changed, re-rendering:', {
-      rowKey: prev.rowKey,
-      rowKeyChanged: prev.rowKey !== next.rowKey,
-      // rowDataChanged: prev.rowData !== next.rowData,  // IGNORÉ
-      columnsChanged: prev.columns !== next.columns,
-      columnPropsMapChanged: prev.columnPropsMap !== next.columnPropsMap,
-      viewChanged: prev.view !== next.view,
-      fieldsChanged: prev.fields !== next.fields,
-      viewContextChanged: prev.viewContext !== next.viewContext,
-      onUpdateChanged: prev.onUpdate !== next.onUpdate,
-      onClickAwayChanged: prev.onClickAway !== next.onClickAway,
-    });
-  }
 
   return isEqual;
 });

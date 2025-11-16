@@ -37,7 +37,8 @@ export interface SelectionSyncOptions {
 export function createLocalDxDataSource(
   records: DataRecord[],
   handlers: LocalDataSourceHandlers = {},
-  selectionSync?: SelectionSyncOptions
+  selectionSync?: SelectionSyncOptions,
+  editingRowFormAtomRef?: React.MutableRefObject<any>
 ) {
   dxLog("[LocalDxDataSource] Creating with", records.length, "records");
 
@@ -86,7 +87,7 @@ export function createLocalDxDataSource(
      * Insérer un nouvel enregistrement (nouveau record dans OneToMany)
      */
     insert: async (values) => {
-      dxLog("[LocalDxDataSource] insert called with values:", values);
+      dxLog("[LocalDxDataSource] insert called with DevExtreme values:", values);
 
       try {
         if (!handlers.onSave) {
@@ -94,7 +95,19 @@ export function createLocalDxDataSource(
           return values;
         }
 
-        const result = await handlers.onSave(values);
+        // ✅ SOLUTION : Lire les valeurs depuis le formAtom au lieu des params DevExtreme
+        // DevExtreme ne peut pas extraire les valeurs des widgets Axelor custom (avec dataRowRender)
+        let recordToSave = values;
+        if (editingRowFormAtomRef?.current) {
+          const store = getDefaultStore();
+          const formState = store.get(editingRowFormAtomRef.current) as any;
+          if (formState?.record) {
+            recordToSave = formState.record;
+            dxLog("[LocalDxDataSource] Using values from formAtom instead of DevExtreme:", recordToSave);
+          }
+        }
+
+        const result = await handlers.onSave(recordToSave);
         dxLog("[LocalDxDataSource] insert result:", result);
         return result;
       } catch (error) {
@@ -107,7 +120,7 @@ export function createLocalDxDataSource(
      * Mettre à jour un enregistrement existant (édition inline dans OneToMany)
      */
     update: async (key, values) => {
-      dxLog("[LocalDxDataSource] update called with key:", key, "values:", values);
+      dxLog("[LocalDxDataSource] update called with key:", key, "DevExtreme values:", values);
 
       try {
         if (!handlers.onUpdate) {
@@ -122,8 +135,20 @@ export function createLocalDxDataSource(
         }
         dxLog("[LocalDxDataSource] Original record found:", originalRecord);
 
+        // ✅ SOLUTION : Lire les valeurs depuis le formAtom au lieu des params DevExtreme
+        // DevExtreme ne peut pas extraire les valeurs des widgets Axelor custom (avec dataRowRender)
+        let valuesToMerge = values;
+        if (editingRowFormAtomRef?.current) {
+          const store = getDefaultStore();
+          const formState = store.get(editingRowFormAtomRef.current) as any;
+          if (formState?.record) {
+            valuesToMerge = formState.record;
+            dxLog("[LocalDxDataSource] Using values from formAtom instead of DevExtreme:", valuesToMerge);
+          }
+        }
+
         // Fusionner les modifications avec le record original
-        const recordToSave = { ...originalRecord, ...values };
+        const recordToSave = { ...originalRecord, ...valuesToMerge };
         dxLog("[LocalDxDataSource] Merged record to save:", recordToSave);
 
         const result = await handlers.onUpdate(recordToSave);

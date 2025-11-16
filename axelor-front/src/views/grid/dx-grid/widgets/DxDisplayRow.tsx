@@ -1,8 +1,10 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { Cell } from "@/views/grid/renderers/cell/cell";
 import { DxDisplayCell } from "./DxDisplayCell";
 import type { GridView } from "@/services/client/meta.types";
 import { getDxCellValue, getGridInstance } from "../dx-grid-utils";
+import { DxCell } from "./DxCell";
+import { calculateFixedOffsets } from "./columnFixingUtils";
 
 interface DxDisplayRowProps {
   /** Données de la ligne (rowInfo.row) */
@@ -41,8 +43,6 @@ export const DxDisplayRow = React.memo(function DxDisplayRow(props: DxDisplayRow
     if (!onCellClick || !dataGridRef) return undefined;
 
     return (e: React.MouseEvent) => {
-      console.log('[DxDisplayRow] Cell clicked', { col: col.dataField, columnIndex, rowKey: row.key });
-
       // Récupérer l'instance du grid
       const gridInstance = getGridInstance(dataGridRef);
 
@@ -57,32 +57,33 @@ export const DxDisplayRow = React.memo(function DxDisplayRow(props: DxDisplayRow
         event: e.nativeEvent,
       };
 
-      console.log('[DxDisplayRow] Calling onCellClick with event', cellClickEvent);
-
       // Appeler le handler
       onCellClick(cellClickEvent);
     };
   };
 
+  // Calculer les offsets pour les colonnes fixées (pour position: sticky)
+  const { leftOffsets, rightOffsets } = useMemo(
+    () => calculateFixedOffsets(columns),
+    [columns]
+  );
+
   return (
     <tr className="dx-row dx-data-row dx-row-lines">
       {columns.map((col: any, index: number) => {
+        const key = col.dataField || `col_${index}`;
+        const leftOffset = leftOffsets.get(col.dataField || col.name || col.caption);
+        const rightOffset = rightOffsets.get(col.dataField || col.name || col.caption);
+
         // Lookup O(1) dans la Map des props de colonnes
         const colProps = col.dataField ? columnPropsMap.get(col.dataField) : undefined;
 
         // Colonnes sans dataField (système) → cellule vide
         if (!col.dataField) {
           return (
-            <td
-              key={`col_${index}`}
-              className="dx-cell"
-              style={{
-                width: col.width || "auto",
-                minWidth: col.minWidth || "50px",
-                maxWidth: col.width || "none",
-                padding: "4px 8px",
-              }}
-            />
+            <DxCell key={key} col={col} leftOffset={leftOffset} rightOffset={rightOffset}>
+              {/* Cellule vide */}
+            </DxCell>
           );
         }
 
@@ -101,18 +102,9 @@ export const DxDisplayRow = React.memo(function DxDisplayRow(props: DxDisplayRow
           const renderedCell = colProps.cellRender(cellData);
 
           return (
-            <td
-              key={col.dataField || index}
-              className="dx-cell"
-              style={{
-                width: col.width || "auto",
-                minWidth: col.minWidth || "50px",
-                maxWidth: col.width || "none",
-                padding: "4px 8px",
-              }}
-            >
+            <DxCell key={key} col={col} leftOffset={leftOffset} rightOffset={rightOffset}>
               {renderedCell}
-            </td>
+            </DxCell>
           );
         }
 
@@ -132,16 +124,7 @@ export const DxDisplayRow = React.memo(function DxDisplayRow(props: DxDisplayRow
         // CAS 1 : Bouton → utiliser Cell avec col.button (comme StandardColumn.tsx ligne 69-83)
         if (colProps?.isButton && colProps.button) {
           return (
-            <td
-              key={col.dataField || index}
-              className="dx-cell"
-              style={{
-                width: col.width || "auto",
-                minWidth: col.minWidth || "50px",
-                maxWidth: col.width || "none",
-                padding: "4px 8px",
-              }}
-            >
+            <DxCell key={key} col={col} leftOffset={leftOffset} rightOffset={rightOffset}>
               <Cell
                 view={view}
                 viewContext={viewContext}
@@ -153,7 +136,7 @@ export const DxDisplayRow = React.memo(function DxDisplayRow(props: DxDisplayRow
                 actionExecutor={actionExecutor}
                 onUpdate={onUpdate}
               />
-            </td>
+            </DxCell>
           );
         }
 
@@ -162,48 +145,40 @@ export const DxDisplayRow = React.memo(function DxDisplayRow(props: DxDisplayRow
           const clickHandler = createCellClickHandler(col, index);
 
           return (
-            <td
-              key={col.dataField || index}
-              className="dx-cell"
+            <DxCell
+              key={key}
+              col={col}
+              leftOffset={leftOffset}
+              rightOffset={rightOffset}
               style={{
-                width: col.width || "auto",
-                minWidth: col.minWidth || "50px",
-                maxWidth: col.width || "none",
-                padding: "4px 8px",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
                 cursor: col.allowEditing ? "pointer" : "default",
               }}
-              onClick={clickHandler}
             >
-              <DxDisplayCell
-                cellData={cellData}
-                field={colProps.field}
-                fieldMeta={colProps.fieldMeta}
-                allFields={fields}
-                view={view}
-                viewContext={viewContext}
-                actionExecutor={actionExecutor}
-                index={index}
-                onUpdate={onUpdate}
-              />
-            </td>
+              <div onClick={clickHandler}>
+                <DxDisplayCell
+                  cellData={cellData}
+                  field={colProps.field}
+                  fieldMeta={colProps.fieldMeta}
+                  allFields={fields}
+                  view={view}
+                  viewContext={viewContext}
+                  actionExecutor={actionExecutor}
+                  index={index}
+                  onUpdate={onUpdate}
+                />
+              </div>
+            </DxCell>
           );
         }
 
         // CAS 3 : Colonne sans metadata → cellule vide (comme StandardColumn.tsx ligne 84 : undefined)
         return (
-          <td
-            key={col.dataField || index}
-            className="dx-cell"
-            style={{
-              width: col.width || "auto",
-              minWidth: col.minWidth || "50px",
-              maxWidth: col.width || "none",
-              padding: "4px 8px",
-            }}
-          />
+          <DxCell key={key} col={col} leftOffset={leftOffset} rightOffset={rightOffset}>
+            {/* Cellule vide */}
+          </DxCell>
         );
       })}
     </tr>
