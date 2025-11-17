@@ -1,0 +1,17 @@
+// GitHub Packages publishing configuration
+// Ajoute le repository GitHub Packages à la configuration de publication existante
+
+afterEvaluate {
+    publishing {
+        repositories {
+            maven {
+                name = "GitHubPackages"
+                url = uri("https://maven.pkg.github.com/NicolasVautrin/axelor-open-platform")
+                credentials {
+                    username = System.getenv("GITHUB_ACTOR") ?: project.findProperty("gpr.user")
+                    password = System.getenv("GITHUB_TOKEN") ?: project.findProperty("gpr.token")
+                }
+            }
+        }
+    }
+}

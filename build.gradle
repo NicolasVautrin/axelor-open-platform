@@ -60,6 +60,9 @@ configure(subprojects - project(':axelor-front')) {
   apply plugin: com.axelor.gradle.support.PublishSupport
   apply plugin: 'com.adarshr.test-logger'
 
+  // GitHub Packages publishing
+  apply from: "${rootDir}/gradle/github-publish.gradle"
+
   group = "com.axelor"
   version = rootProject.version
 
