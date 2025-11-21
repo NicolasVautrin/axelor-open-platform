@@ -46,7 +46,7 @@ interface DxEditRowProps {
  * Utilise editCellRender de colProps pour rendre les widgets Axelor.
  */
 export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
-  const { rowData, rowKey, columns, columnPropsMap, view, fields, viewContext, onUpdate, onClickAway, parentFormAtom, onFormAtomReady } = props;
+  const { rowData, rowKey, columns, columnPropsMap, view, fields, viewContext, onUpdate, onClickAway, parentFormAtom, onFormAtomReady, gridInstance, rowIndex } = props;
 
   // ✅ SOLUTION : Mémoriser rowData initial pour éviter de recréer formAtom
   // quand rowData change (à cause des modifications de cellule)
@@ -83,14 +83,25 @@ export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
     const isNew = (initialRecord?.id ?? 0) < 0 && !initialRecord?._dirty;
     const onNewAction = isNew && onNew;
 
+    console.log('[DxEditRow] onNew check:', {
+      rowKey,
+      recordId: initialRecord?.id,
+      isDirty: initialRecord?._dirty,
+      isNew,
+      willExecute: !!onNewAction,
+    });
+
     // ✅ Exécuter seulement si isNew (pattern Axelor avec flag _dirty)
     if (onNewAction) {
-      await actionExecutor.execute(onNewAction);
-      // ✅ Marquer le record comme _dirty pour éviter les ré-exécutions (pattern Axelor)
-      // Même si DxEditRow est démonté/remonté, le check !_dirty empêchera la ré-exécution
+      // ✅ CRITIQUE: Marquer _dirty AVANT l'exécution async pour éviter les doubles exécutions
+      // Cela bloque les race conditions causées par React 18 StrictMode qui monte/démonte/remonte les composants
       if (initialRecord) {
         initialRecord._dirty = true;
+        console.log('[DxEditRow] Marked record as _dirty BEFORE execution:', initialRecord?.id);
       }
+      console.log('[DxEditRow] Executing onNew for record:', initialRecord?.id);
+      await actionExecutor.execute(onNewAction);
+      console.log('[DxEditRow] onNew execution completed for record:', initialRecord?.id);
     }
   }, [view, actionExecutor, rowKey]);
 
@@ -147,6 +158,9 @@ export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
               // IMPORTANT: Passer formAtom et actionExecutor via cellData
               formAtom: formAtom,
               actionExecutor: actionExecutor,
+              // ✅ Passer gridInstance et rowIndex pour synchronisation DevExtreme
+              gridInstance: gridInstance,
+              dxRowIndex: rowIndex,  // Utiliser dxRowIndex pour éviter conflit avec rowIndex (index colonne)
             };
 
             // Utiliser editCellRender en priorité, sinon cellRender (fallback)
@@ -203,6 +217,9 @@ export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
             // IMPORTANT: Passer formAtom et actionExecutor via cellData
             formAtom: formAtom,
             actionExecutor: actionExecutor,
+            // ✅ Passer gridInstance et rowIndex pour synchronisation DevExtreme
+            gridInstance: gridInstance,
+            dxRowIndex: rowIndex,  // Utiliser dxRowIndex pour éviter conflit avec rowIndex (index colonne)
           };
 
           // Utiliser editCellRender en priorité, sinon cellRender (fallback)

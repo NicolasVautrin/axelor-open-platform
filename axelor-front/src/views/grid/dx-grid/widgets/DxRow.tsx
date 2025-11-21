@@ -70,6 +70,8 @@ export function useDxRow({
           onClickAway={handleRowClickAway}  // ClickAwayListener pour auto-save (comme Axelor)
           parentFormAtom={parentFormAtom}  // Parent formAtom pour triggers O2M (onChange/onNew)
           onFormAtomReady={onEditRowFormAtomReady}  // Callback pour récupérer le formAtom
+          gridInstance={gridInstance}  // ✅ Pour synchronisation formAtom → DevExtreme
+          rowIndex={rowInfo.rowIndex}  // ✅ Index de la ligne pour cellValue()
         />
       );
     }

@@ -139,9 +139,21 @@ export function createValueAtom({
   const { name, readonly, onChange, inGridEditor } = schema;
 
   const triggerOnChange = () => {
+    console.log('[createValueAtom] triggerOnChange called:', {
+      fieldName: name,
+      hasOnChange: !!onChange,
+      onChange,
+      schema,
+    });
     if (onChange) {
       const params = createContextParams(schema);
       const opts = params ? { context: params } : undefined;
+      console.log('[createValueAtom] Executing onChange action:', {
+        fieldName: name,
+        onChange,
+        params,
+        opts,
+      });
       return actionExecutor.execute(onChange, opts);
     }
   };

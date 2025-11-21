@@ -109,6 +109,7 @@ export function createLocalDxDataSource(
 
         const result = await handlers.onSave(recordToSave);
         dxLog("[LocalDxDataSource] insert result:", result);
+
         return result;
       } catch (error) {
         console.error("[LocalDxDataSource] Error inserting record:", error);

@@ -76,20 +76,64 @@ export const DxEditCell = React.memo(
       )
     );
 
-    // Utiliser des refs pour éviter la boucle infinie causée par cellData qui change de référence
-    const setValueRef = useRef(cellData.setValue);
-    const currentValueRef = useRef(cellData.value);
-
-    // Garder les refs à jour
-    setValueRef.current = cellData.setValue;
-    currentValueRef.current = cellData.value;
-
-    // Propager les changements vers DevExtreme via setValue
+    // DEBUG: Logger TOUS les changements du record complet
+    const fullRecord = useAtomValue(
+      useMemo(
+        () => selectAtom(formAtom, (state: FormState) => state.record),
+        [formAtom]
+      )
+    );
     useEffect(() => {
-      if (setValueRef.current && fieldValue !== currentValueRef.current) {
-        setValueRef.current(fieldValue);
+      console.log('[DxEditCell] Full record changed:', {
+        fieldName: field.name,
+        fullRecord,
+        fieldValue: fullRecord[field.name],
+      });
+    }, [fullRecord, field.name]);
+
+    // Récupérer gridInstance et dxRowIndex depuis cellData
+    const gridInstance = cellData.gridInstance;
+    const dxRowIndex = cellData.dxRowIndex;
+
+    // Utiliser des refs pour éviter la boucle infinie causée par cellData qui change de référence
+    const currentValueRef = useRef(cellData.value);
+    const gridInstanceRef = useRef(gridInstance);
+    const dxRowIndexRef = useRef(dxRowIndex);
+
+    // Garder gridInstanceRef et dxRowIndexRef à jour
+    gridInstanceRef.current = gridInstance;
+    dxRowIndexRef.current = dxRowIndex;
+
+    // Propager les changements vers DevExtreme via gridInstance.cellValue()
+    useEffect(() => {
+      console.log('[DxEditCell] useEffect triggered:', {
+        fieldName: field.name,
+        fieldValue,
+        currentValue: currentValueRef.current,
+        areEqual: fieldValue === currentValueRef.current,
+        strictEqual: fieldValue !== currentValueRef.current,
+        hasGridInstance: !!gridInstanceRef.current,
+        dxRowIndex: dxRowIndexRef.current,
+      });
+
+      if (gridInstanceRef.current && dxRowIndexRef.current !== undefined && fieldValue !== currentValueRef.current) {
+        console.log('[DxEditCell] Propagating value change to DevExtreme:', {
+          fieldName: field.name,
+          oldValue: currentValueRef.current,
+          newValue: fieldValue,
+          dxRowIndex: dxRowIndexRef.current,
+        });
+
+        try {
+          // ✅ Utiliser gridInstance.cellValue() pour mettre à jour DevExtreme
+          gridInstanceRef.current.cellValue(dxRowIndexRef.current, field.name, fieldValue);
+          // ✅ Mettre à jour currentValueRef APRÈS avoir propagé la valeur
+          currentValueRef.current = fieldValue;
+        } catch (error) {
+          console.error('[DxEditCell] Error setting cell value:', error);
+        }
       }
-    }, [fieldValue]);
+    }, [fieldValue, field.name]);
 
     // NOTE: Le trigger onChange est maintenant géré automatiquement par le système Axelor standard (valueAtom)
     // grâce au ScopeProvider dans DxEditRow qui injecte le bon actionExecutor.

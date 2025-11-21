@@ -14,6 +14,7 @@ import { dxLog } from "@/utils/dev-tools";
 import { getDefaultStore } from "jotai";
 import isEqual from "lodash/isEqual";
 import { useGetErrors, showErrors } from "@/views/form/form";
+import { i18n } from "@/services/client/i18n";
 
 interface UseDxColumnsParams {
   view: GridView;
@@ -203,7 +204,7 @@ export function useTriggerSearch({ dataStore, fieldsToFetch }: UseTriggerSearchP
       // Appeler le dataStore
       await dataStore.search(searchOptions);
     } catch (error) {
-      console.error("[DxGridInner] Search error", error);
+      console.error("[DxGrid] Search error", error);
     } finally {
       isSearchingRef.current = false;
     }
@@ -510,15 +511,38 @@ export function useHandleEditingEnterKeyDown({
     const popupOpen = isPopupOpen();
     const alreadyPrevented = e.event?.defaultPrevented;
 
+    // Vérifier si l'élément actif est un Select/Combobox AVEC dropdown OUVERT
+    const activeElement = document.activeElement;
+    const selectElement = activeElement?.closest('[aria-haspopup="listbox"]');
+    const isSelectDropdownOpen = selectElement?.getAttribute('aria-expanded') === 'true';
+
+    console.log('[DxGrid] Enter key pressed in edit mode:', {
+      popupOpen,
+      alreadyPrevented,
+      isSelectDropdownOpen,
+      target: e.event?.target,
+      activeElement: document.activeElement,
+      listboxInDom: document.querySelector('[role="listbox"]'),
+    });
+
     // CRITIQUE : Si un composant enfant (Select) a déjà appelé preventDefault(),
     // c'est qu'il gère l'événement (sélection dans dropdown) → on ne fait rien
     // Le Select Axelor appelle preventDefault() quand activeIndex !== null
     if (alreadyPrevented) {
+      console.log('[DxGrid] Enter already prevented by child component, ignoring');
       return;
     }
 
     // Backup: Ignorer l'Enter si un popup/dropdown est ouvert (au cas où preventDefault n'aurait pas été appelé)
     if (popupOpen) {
+      console.log('[DxGrid] Popup is open, ignoring Enter');
+      return;
+    }
+
+    // NOUVEAU: Ignorer l'Enter si on est dans un Select/Combobox ET que le dropdown est OUVERT
+    // Si le dropdown est fermé, on peut sauvegarder la ligne
+    if (isSelectDropdownOpen) {
+      console.log('[DxGrid] Select dropdown is open, ignoring Enter');
       return;
     }
 
@@ -669,6 +693,11 @@ function useIsPopupOpen() {
       '.MuiMenu-root',
       '.MuiTooltip-popper',
       '[data-floating-ui-portal]',
+      '[role="listbox"]',  // Dropdowns Axelor
+      '[role="menu"]',     // Menus contextuels
+      '[role="dialog"]',   // Dialogs
+      '[class*="_modal"]',  // Modales Axelor (CSS modules)
+      '[class*="_dialogRoot"]',  // Dialog root Axelor (CSS modules)
     ].join(', ');
 
     return document.querySelector(portalSelectors) !== null;
@@ -818,9 +847,62 @@ async function saveEditingRowAndClose(
     const store = getDefaultStore();
     const formState = store.get(editingRowFormAtomRef.current) as any;
 
-    // 3. Valider les champs required AVANT de sauvegarder (pattern Axelor)
-    if (getErrors) {
-      const errors = getErrors(formState);
+    // 3. Forcer la validation complète de tous les champs AVANT de sauvegarder (pattern Axelor)
+    // IMPORTANT: getErrors() lit seulement les erreurs existantes dans widgetState.errors
+    // Il faut d'abord générer les erreurs en validant tous les champs
+    if (getErrors && formState) {
+      const { validate } = await import('@/utils/validate');
+      const { parseExpression } = await import('@/hooks/use-parser/utils');
+      const { states, record, meta } = formState;
+
+      // Pour chaque widget, valider sa valeur et évaluer validIf
+      for (const [uid, widgetState] of Object.entries(states || {}) as [string, any][]) {
+        const { name, attrs = {} } = widgetState;
+        if (!name) continue;
+
+        const value = record?.[name];
+        let errors: any = {};
+
+        // 1. Validation statique (required, pattern, minSize/maxSize)
+        const staticErrors = validate(value, {
+          props: attrs,
+          context: record,
+        });
+        if (staticErrors) {
+          errors = { ...errors, ...staticErrors };
+        }
+
+        // 2. Validation dynamique (validIf expression)
+        if (attrs.validIf) {
+          try {
+            const isValid = parseExpression(attrs.validIf)(record);
+            if (!isValid) {
+              errors.invalid = i18n.get("{0} is invalid", attrs.title || name);
+            }
+          } catch (e) {
+            // Ignorer les erreurs d'évaluation d'expression
+          }
+        }
+
+        // Mettre à jour les erreurs dans le widgetState si nécessaire
+        const currentErrors = widgetState.errors || {};
+        if (!isEqual(currentErrors, errors)) {
+          store.set(editingRowFormAtomRef.current, (prev: any) => ({
+            ...prev,
+            states: {
+              ...prev.states,
+              [uid]: {
+                ...prev.states[uid],
+                errors: Object.keys(errors).length > 0 ? errors : undefined,
+              },
+            },
+          }));
+        }
+      }
+
+      // Maintenant lire les erreurs après validation complète
+      const updatedFormState = store.get(editingRowFormAtomRef.current) as any;
+      const errors = getErrors(updatedFormState);
       if (errors) {
         showErrors(errors);
         // Ne pas fermer la ligne - garder le mode édition
@@ -833,6 +915,13 @@ async function saveEditingRowAndClose(
     // 3. Comparer avec le record original (isEqual)
     const isNew = !initialRecordRef.current.id || initialRecordRef.current.id < 0;
     const hasChanges = !isEqual(initialRecordRef.current, currentRecord);
+
+    console.log(`${logPrefix} Comparing records:`, {
+      initialRecord: initialRecordRef.current,
+      currentRecord,
+      hasChanges,
+      isNew,
+    });
 
     // 4. Si changé : appeler onUpdate/onSave directement (comme Axelor)
     if (hasChanges || isNew) {
@@ -851,7 +940,14 @@ async function saveEditingRowAndClose(
     await gridInstance.cancelEditData();
   } else {
     // Mode standard DevExtreme (non-O2M ou pas de formAtom)
-    if (!gridInstance.hasEditData()) {
+    const hasEditData = gridInstance.hasEditData();
+
+    console.log(`${logPrefix} DevExtreme standard mode:`, {
+      hasEditData,
+      willSave: hasEditData,
+    });
+
+    if (!hasEditData) {
       await gridInstance.cancelEditData();
     } else {
       await gridInstance.saveEditData();

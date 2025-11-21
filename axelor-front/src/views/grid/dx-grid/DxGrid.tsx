@@ -57,7 +57,7 @@ import {
   nextId,
   isNewRecord,
 } from "./dx-grid-utils";
-import { useDxColumns, useTriggerSearch, useHandleOptionChanged, useHandleEditingTabNavigation, useHandleEditingKeyDown, useHandleRowClickAway } from "./DxGridInner.hooks";
+import { useDxColumns, useTriggerSearch, useHandleOptionChanged, useHandleEditingTabNavigation, useHandleEditingKeyDown, useHandleRowClickAway } from "./DxGrid.hooks";
 import { createDxDataSource } from "./createDxDataSource";
 import { createLocalDxDataSource } from "./createLocalDxDataSource";
 import { convertDxFilterToAxelor } from "./dx-filter-converter";
@@ -432,6 +432,11 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
 
   // Rafraîchir le DataSource quand les records changent
   useEffect(() => {
+    console.log('[DxGrid] Records changed, reloading dataSource:', {
+      isLocalMode,
+      recordsCount: isLocalMode ? localRecords?.length : dataStore.records?.length,
+      dataStoreRecords: dataStore.records,
+    });
     const gridInstance = getGridInstance(dataGridRef);
     if (gridInstance && dxDataSource) {
       dxDataSource.reload();

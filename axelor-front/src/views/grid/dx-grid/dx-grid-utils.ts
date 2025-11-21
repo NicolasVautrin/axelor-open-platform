@@ -45,17 +45,10 @@ export function getGridInstance(dataGridRef: RefObject<React.ElementRef<typeof D
     return null;
   }
 
-  // .instance peut être un getter ou une fonction selon la version
-  const instanceType = typeof gridRef.instance;
-  const isMethod = instanceType === 'function';
-  const gridInstance = isMethod
-    ? gridRef.instance()
-    : gridRef.instance;
-
-  // Logger uniquement si ce n'est PAS une méthode (cas inhabituel)
-  if (!isMethod) {
-    console.log(`[getGridInstance] instance accessor: FIELD/GETTER, has instance: ${!!gridInstance}`);
-  }
+  // Dans DevExtreme v22.2.15, .instance est un getter (propriété)
+  // Dans v25+, c'est devenu une méthode
+  // On utilise le getter pour v22.2.15
+  const gridInstance = gridRef.instance;
 
   return gridInstance || null;
 }
