@@ -38,7 +38,8 @@ export function createLocalDxDataSource(
   records: DataRecord[],
   handlers: LocalDataSourceHandlers = {},
   selectionSync?: SelectionSyncOptions,
-  editingRowFormAtomRef?: React.MutableRefObject<any>
+  editingRowFormAtomRef?: React.MutableRefObject<any>,
+  editingRowStoreRef?: React.MutableRefObject<any>  // ✅ FIX DevExtreme v22: Store dédié
 ) {
   dxLog("[LocalDxDataSource] Creating with", records.length, "records");
 
@@ -97,9 +98,10 @@ export function createLocalDxDataSource(
 
         // ✅ SOLUTION : Lire les valeurs depuis le formAtom au lieu des params DevExtreme
         // DevExtreme ne peut pas extraire les valeurs des widgets Axelor custom (avec dataRowRender)
+        // ✅ FIX DevExtreme v22: Utiliser le store DÉDIÉ passé par DxEditRow
         let recordToSave = values;
         if (editingRowFormAtomRef?.current) {
-          const store = getDefaultStore();
+          const store = editingRowStoreRef?.current || getDefaultStore();
           const formState = store.get(editingRowFormAtomRef.current) as any;
           if (formState?.record) {
             recordToSave = formState.record;
@@ -137,9 +139,10 @@ export function createLocalDxDataSource(
 
         // ✅ SOLUTION : Lire les valeurs depuis le formAtom au lieu des params DevExtreme
         // DevExtreme ne peut pas extraire les valeurs des widgets Axelor custom (avec dataRowRender)
+        // ✅ FIX DevExtreme v22: Utiliser le store DÉDIÉ passé par DxEditRow
         let valuesToMerge = values;
         if (editingRowFormAtomRef?.current) {
-          const store = getDefaultStore();
+          const store = editingRowStoreRef?.current || getDefaultStore();
           const formState = store.get(editingRowFormAtomRef.current) as any;
           if (formState?.record) {
             valuesToMerge = formState.record;

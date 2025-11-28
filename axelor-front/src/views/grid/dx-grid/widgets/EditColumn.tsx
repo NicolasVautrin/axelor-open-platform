@@ -48,8 +48,8 @@ export function getEditColumnProps({ view, onEdit }: EditColumnProps) {
   return {
     dataField: "$$edit",
     caption: "",
-    width: 40,
-    minWidth: 40,
+    width: 30,
+    minWidth: 30,
     fixed: true,
     fixedPosition: "left" as const,
     alignment: "center" as const,

@@ -1,4 +1,5 @@
-import React, { useRef, useEffect, useMemo } from "react";
+import React, { useRef, useEffect, useLayoutEffect, useMemo } from "react";
+import { Provider, createStore } from "jotai";
 import { ScopeProvider } from "bunshi/react";
 import { ClickAwayListener } from "@axelor/ui";
 import type { GridView } from "@/services/client/meta.types";
@@ -10,6 +11,8 @@ import { DxCell } from "./DxCell";
 import { calculateFixedOffsets } from "./columnFixingUtils";
 
 interface DxEditRowProps {
+  /** ✅ FIX MULTI-GRID: ID unique de la grille pour filtrer les clickAway events */
+  gridId: string;
   /** Données de la ligne (row.data) */
   rowData: DataRecord;
   /** Clé de la ligne (row.key) */
@@ -26,8 +29,10 @@ interface DxEditRowProps {
   viewContext?: DataContext;
   /** Update handler */
   onUpdate?: (record: any) => Promise<any>;
-  /** Handler pour clic en dehors de la ligne (auto-save) */
-  onClickAway?: (event: Event) => void | Promise<void>;
+  /** Handler pour clic en dehors de la ligne (auto-save)
+   * Reçoit le store, formAtom, gridId et rowKey LOCAUX de cette ligne pour éviter les conflits entre grilles O2M
+   */
+  onClickAway?: (event: Event, store: any, formAtom: any, gridId: string, rowKey: any) => void | Promise<void>;
   /** Parent formAtom for O2M context (triggers onChange/onNew with correct context) */
   parentFormAtom?: any;
   /** Callback to notify parent when formAtom is ready */
@@ -36,6 +41,14 @@ interface DxEditRowProps {
   gridInstance?: any;
   /** Index de la ligne en édition (pour synchronisation formAtom) */
   rowIndex?: number;
+  /** ✅ FIX DOUBLE TRIGGER: Ref partagé pour tracker si c'est une NOUVELLE ligne
+   * Passé comme REF (pas valeur) pour pouvoir le reset après exécution de onNew
+   * et éviter les doubles déclenchements lors des remontages DevExtreme */
+  isNewRowRef?: React.MutableRefObject<boolean>;
+  /** ✅ FIX RACE CONDITION: Ref partagé pour le formAtom - permet mise à jour synchrone entre DxEditRow */
+  editingRowFormAtomRef?: React.MutableRefObject<any>;
+  /** ✅ FIX: Store existant à réutiliser (doit correspondre à existingFormAtom) */
+  existingStore?: any;
 }
 
 /**
@@ -46,7 +59,26 @@ interface DxEditRowProps {
  * Utilise editCellRender de colProps pour rendre les widgets Axelor.
  */
 export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
-  const { rowData, rowKey, columns, columnPropsMap, view, fields, viewContext, onUpdate, onClickAway, parentFormAtom, onFormAtomReady } = props;
+  const { gridId, rowData, rowKey, columns, columnPropsMap, view, fields, viewContext, onUpdate, onClickAway, parentFormAtom, onFormAtomReady, isNewRowRef, editingRowFormAtomRef, existingStore } = props;
+
+  // ✅ FIX DOUBLE TRIGGER: Lire la valeur du ref (sera reset à false après exécution de onNew)
+  const isNewRow = isNewRowRef?.current ?? false;
+
+  // ✅ FIX RACE CONDITION: Lire le formAtom existant du ref SYNCHRONEMENT au render
+  // Cela permet aux DxEditRow montés en parallèle de partager le même formAtom
+  const existingFormAtom = editingRowFormAtomRef?.current;
+
+  // ✅ FIX DevExtreme v22 Portal Context Isolation:
+  // Créer un store Jotai DÉDIÉ pour cette ligne d'édition.
+  // DevExtreme v22 utilise ReactDOM.createPortal() pour rendre les templates,
+  // ce qui casse la propagation du contexte React. En créant un store dédié
+  // et en le passant au parent via onFormAtomReady, on garantit que :
+  // 1. Les widgets utilisent ce store via <Provider store={store}>
+  // 2. saveEditingRowAndClose utilise le MÊME store pour lire formAtom
+  //
+  // ✅ FIX REMONTAGE: Si existingStore est fourni, le réutiliser pour éviter
+  // de perdre l'état lors du remontage de DxEditRow par DevExtreme
+  const store = useMemo(() => existingStore || createStore(), [existingStore]);
 
   // ✅ SOLUTION : Mémoriser rowData initial pour éviter de recréer formAtom
   // quand rowData change (à cause des modifications de cellule)
@@ -55,44 +87,76 @@ export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
     initialRowDataRef.current = rowData;
   }
 
+  // ✅ FIX: Mémoriser l'objet meta pour éviter que useFormHandlers recrée le formAtom
+  // à chaque render. Sans useMemo, { view, fields, model } est un NOUVEL objet
+  // à chaque render, ce qui fait changer les dépendances du useMemo interne
+  // de useFormHandlers, recréant ainsi le formAtom et perdant les modifications !
+  const metaForForm = useMemo(() => ({
+    view,
+    fields,
+    model: view.model,
+  }), [view, fields]);
+
+  // ✅ FIX REMONTAGE: Si existingFormAtom est fourni, le réutiliser pour éviter
+  // de perdre les modifications lors du remontage de DxEditRow par DevExtreme
   const { formAtom, actionExecutor, actionHandler, recordHandler } = useFormHandlers(
-    {
-      view,
-      fields,
-      model: view.model,
-    } as any,
+    metaForForm as any,
     initialRowDataRef.current, // Toujours utiliser le rowData initial
     {
       parent: parentFormAtom,  // ← AJOUTER pour que le contexte ait _parent
+      formAtom: existingFormAtom,  // ✅ Réutiliser le formAtom existant si fourni
     }
   );
+
+  // ✅ FIX RACE CONDITION: Mettre à jour le ref SYNCHRONEMENT si on a créé un nouveau formAtom
+  // C'est safe de modifier un ref pendant le render car il n'est pas tracké par React
+  // Cela permet aux DxEditRow montés en parallèle de partager le même formAtom
+  if (!existingFormAtom && editingRowFormAtomRef && formAtom) {
+    editingRowFormAtomRef.current = formAtom;
+  }
 
   // Ref pour la ligne <tr> pour accéder aux inputs après le rendu
   const rowRef = useRef<HTMLTableRowElement>(null);
 
-  // Notifier le parent que le formAtom est prêt (pour accès depuis le DataSource)
-  useEffect(() => {
-    onFormAtomReady?.(formAtom);
-  }, [formAtom, onFormAtomReady]);
+  // Notifier le parent que le formAtom ET le store sont prêts (pour accès depuis saveEditingRowAndClose)
+  // ✅ FIX: Passer aussi le store dédié pour que saveEditingRowAndClose puisse lire formAtom
+  // depuis le même store que celui utilisé par les widgets
+  // ✅ FIX TIMING: useLayoutEffect au lieu de useEffect pour notifier AVANT le prochain render
+  // DevExtreme peut appeler DxRow plusieurs fois en succession rapide, et si on utilise useEffect,
+  // le second appel verra un ref vide car useEffect s'exécute après le render (trop tard).
+  useLayoutEffect(() => {
+    onFormAtomReady?.({ formAtom, store });
+  }, [formAtom, store, onFormAtomReady]);
+
+  // Ref pour éviter les exécutions multiples du trigger onNew (à cause de re-renders)
+  const onNewExecutedRef = useRef(false);
 
   // Exécuter les triggers O2M (onNew/onChange) comme le fait FormRenderer
-  // ✅ Utiliser initialRowDataRef pour éviter les re-exécutions quand rowData change
+  // ✅ IMPORTANT : isNewRow vient de isNewRowRef qui est set dans handleInitNewRow (true) ou handleEditingStart (false)
+  // Cela permet de distinguer :
+  // - Création d'une NOUVELLE ligne via "+" → isNewRow=true → trigger onNew
+  // - Ré-édition d'une ligne existante (même avec ID négatif) → isNewRow=false → pas de trigger onNew
   useAsyncEffect(async () => {
     const { onNew } = view;
-    const initialRecord = initialRowDataRef.current;
-    const isNew = (initialRecord?.id ?? 0) < 0 && !initialRecord?._dirty;
-    const onNewAction = isNew && onNew;
+    // ✅ FIX DOUBLE TRIGGER: Lire directement depuis le ref pour avoir la valeur la plus récente
+    // (isNewRow local pourrait être stale si le composant est remonté)
+    const isNewRowCurrent = isNewRowRef?.current ?? false;
+    const onNewAction = isNewRowCurrent && onNew;
 
-    // ✅ Exécuter seulement si isNew (pattern Axelor avec flag _dirty)
-    if (onNewAction) {
-      await actionExecutor.execute(onNewAction);
-      // ✅ Marquer le record comme _dirty pour éviter les ré-exécutions (pattern Axelor)
-      // Même si DxEditRow est démonté/remonté, le check !_dirty empêchera la ré-exécution
-      if (initialRecord) {
-        initialRecord._dirty = true;
+    // ✅ Exécuter seulement si c'est une VRAIE nouvelle ligne ET pas déjà exécuté
+    // Le ref évite les exécutions multiples dues aux re-renders (actionExecutor qui change de référence)
+    if (onNewAction && !onNewExecutedRef.current) {
+      onNewExecutedRef.current = true;
+
+      // ✅ FIX DOUBLE TRIGGER: Reset le ref AVANT d'exécuter pour éviter double trigger
+      // si DevExtreme remonte le composant pendant l'exécution async
+      if (isNewRowRef) {
+        isNewRowRef.current = false;
       }
+
+      await actionExecutor.execute(onNewAction);
     }
-  }, [view, actionExecutor, rowKey]);
+  }, [view, actionExecutor, rowKey, isNewRowRef]);
 
   // Fix Tab navigation : définir tabIndex={-1} sur les inputs readonly
   // pour que le browser les saute lors de la navigation Tab
@@ -111,10 +175,20 @@ export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
     [columns]
   );
 
+  // ✅ FIX: Wrapper onClickAway pour passer le store, formAtom, gridId et rowKey LOCAUX
+  // Cela évite les conflits quand plusieurs grilles O2M sont sur la même page
+  // et garantit que seul le DxEditRow de la ligne en édition sauvegarde
+  const handleClickAway = useMemo(() => {
+    if (!onClickAway) return undefined;
+    return (event: Event) => {
+      onClickAway(event, store, formAtom, gridId, rowKey);
+    };
+  }, [onClickAway, store, formAtom, gridId, rowKey]);
+
   // Construire le contenu de la ligne (tr) avec les cellules
   // Si onClickAway est défini, wrapper le <tr> avec ClickAwayListener
-  const rowContent = onClickAway ? (
-    <ClickAwayListener onClickAway={onClickAway}>
+  const rowContent = handleClickAway ? (
+    <ClickAwayListener onClickAway={handleClickAway}>
       <tr ref={rowRef} className="dx-row dx-data-row dx-row-lines">
         {columns.map((col: any, index: number) => {
           const key = col.dataField || `col_${index}`;
@@ -144,8 +218,9 @@ export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
               column: col,
               rowIndex: index,
               key: rowKey,
-              // IMPORTANT: Passer formAtom et actionExecutor via cellData
+              // IMPORTANT: Passer formAtom, store et actionExecutor via cellData
               formAtom: formAtom,
+              store: store,  // Pour debug: comparer store.get() vs useAtomValue()
               actionExecutor: actionExecutor,
             };
 
@@ -200,8 +275,9 @@ export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
             column: col,
             rowIndex: index,
             key: rowKey,
-            // IMPORTANT: Passer formAtom et actionExecutor via cellData
+            // IMPORTANT: Passer formAtom, store et actionExecutor via cellData
             formAtom: formAtom,
+            store: store,  // Pour debug: comparer store.get() vs useAtomValue()
             actionExecutor: actionExecutor,
           };
 
@@ -229,20 +305,27 @@ export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
 
   // Wrapper le contenu dans ScopeProvider pour injecter le bon actionExecutor
   // Cela permet à FormWidget d'utiliser l'actionExecutor de la grid row au lieu de celui du parent form
+  //
+  // ✅ FIX DevExtreme v22: Wrapper avec Provider Jotai utilisant un store DÉDIÉ
+  // DevExtreme v22 rend les templates via createPortal() qui perd le contexte React.
+  // Le store dédié (créé avec createStore()) est passé au parent via onFormAtomReady
+  // pour que saveEditingRowAndClose puisse lire l'état depuis le même store.
   return (
-    <ScopeProvider
-      scope={FormScope}
-      value={{
-        formAtom,
-        actionExecutor,
-        actionHandler,
-        recordHandler,
-      }}
-    >
-      {/* ActionDataHandler gère l'application des valeurs/attrs retournées par les actions */}
-      <ActionDataHandler formAtom={formAtom} />
-      {rowContent}
-    </ScopeProvider>
+    <Provider store={store}>
+      <ScopeProvider
+        scope={FormScope}
+        value={{
+          formAtom,
+          actionExecutor,
+          actionHandler,
+          recordHandler,
+        }}
+      >
+        {/* ActionDataHandler gère l'application des valeurs/attrs retournées par les actions */}
+        <ActionDataHandler formAtom={formAtom} />
+        {rowContent}
+      </ScopeProvider>
+    </Provider>
   );
 }, (prev, next) => {
   // Comparaison custom pour éviter re-renders inutiles
@@ -251,6 +334,7 @@ export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
   // Cela évite de démonter/remonter le ClickAwayListener à chaque changement de valeur,
   // ce qui causait des auto-save intempestifs lors de la fermeture des dropdowns.
   const isEqual = (
+    prev.gridId === next.gridId &&  // ✅ FIX MULTI-GRID
     prev.rowKey === next.rowKey &&
     // prev.rowData === next.rowData &&  // ❌ IGNORÉ pendant l'édition
     prev.columns === next.columns &&
@@ -261,7 +345,12 @@ export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
     prev.onUpdate === next.onUpdate &&
     prev.onClickAway === next.onClickAway &&
     prev.parentFormAtom === next.parentFormAtom &&
-    prev.onFormAtomReady === next.onFormAtomReady
+    prev.onFormAtomReady === next.onFormAtomReady &&
+    // ✅ FIX DOUBLE TRIGGER: Le ref lui-même ne change pas, donc pas besoin de comparer
+    prev.isNewRowRef === next.isNewRowRef &&
+    // ✅ FIX RACE CONDITION: Le ref lui-même ne change pas, donc pas besoin de comparer
+    prev.editingRowFormAtomRef === next.editingRowFormAtomRef &&
+    prev.existingStore === next.existingStore
   );
 
   return isEqual;

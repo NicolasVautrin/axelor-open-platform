@@ -110,7 +110,7 @@ export const DxEditCell = React.memo(
   },
   // Comparaison custom pour éviter re-renders inutiles
   (prev, next) => {
-    const isEqual = (
+    return (
       prev.cellData.value === next.cellData.value &&
       prev.cellData.formAtom === next.cellData.formAtom &&
       prev.cellData.actionExecutor === next.cellData.actionExecutor &&
@@ -118,19 +118,5 @@ export const DxEditCell = React.memo(
       prev.fieldMeta === next.fieldMeta &&
       prev.view === next.view
     );
-
-    if (!isEqual) {
-      console.log('[DxEditCell] Props changed, re-rendering:', {
-        field: prev.field.name,
-        valueChanged: prev.cellData.value !== next.cellData.value,
-        formAtomChanged: prev.cellData.formAtom !== next.cellData.formAtom,
-        actionExecutorChanged: prev.cellData.actionExecutor !== next.cellData.actionExecutor,
-        fieldChanged: prev.field !== next.field,
-        fieldMetaChanged: prev.fieldMeta !== next.fieldMeta,
-        viewChanged: prev.view !== next.view,
-      });
-    }
-
-    return isEqual;
   }
 );

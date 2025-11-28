@@ -39,12 +39,12 @@ const SelectDisplayCell: React.FC<{
  */
 const SelectEditCell: React.FC<{
   rowKey: any;
-  onRevert: (e: any, rowKey: any) => void;
-}> = ({ rowKey, onRevert }) => {
+  onUndo: (e: any, rowKey: any) => void;
+}> = ({ rowKey, onUndo }) => {
   return (
     <Box
       d="inline-flex"
-      onClick={(e: any) => onRevert(e, rowKey)}
+      onClick={(e: any) => onUndo(e, rowKey)}
       style={{ cursor: "pointer", justifyContent: "center", alignItems: "center", height: "100%" }}
     >
       <MaterialIcon icon="undo" />
@@ -113,16 +113,16 @@ export const SelectAllHeader: React.FC<SelectAllHeaderProps> = React.memo(({ vis
 export function getSelectColumnProps(params: {
   rowSelectionAtomFamily: typeof import('../selectionAtoms').rowSelectionAtomFamily;
   onToggleSelection: (rowKey: any) => void;
-  onRevert: (e: any, rowKey: any) => void;
+  onUndo: (e: any, rowKey: any) => void;
   headerCellRender?: (column: any) => React.ReactNode;
 }) {
-  const { rowSelectionAtomFamily, onToggleSelection, onRevert, headerCellRender } = params;
+  const { rowSelectionAtomFamily, onToggleSelection, onUndo, headerCellRender } = params;
 
   return {
     dataField: "$$select",
     caption: "",
-    width: 40,
-    minWidth: 40,
+    width: 30,
+    minWidth: 30,
     fixed: true,
     fixedPosition: "left" as const,
     alignment: "center" as const,
@@ -144,7 +144,7 @@ export function getSelectColumnProps(params: {
     editCellRender: (cellData: any) => (
       <SelectEditCell
         rowKey={cellData.row?.key}
-        onRevert={onRevert}
+        onUndo={onUndo}
       />
     ),
     headerCellRender: headerCellRender,

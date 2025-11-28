@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from "react";
 import { Box, Input } from "@axelor/ui";
 import { GridRow, GridState, getRows } from "@axelor/ui/grid";
-import { atom, useAtom, useSetAtom, useAtomValue } from "jotai";
+import { atom, useAtom, useSetAtom, useAtomValue, createStore } from "jotai";
 import DataGrid, {
   Column,
   ColumnFixing,
@@ -57,7 +57,7 @@ import {
   nextId,
   isNewRecord,
 } from "./dx-grid-utils";
-import { useDxColumns, useTriggerSearch, useHandleOptionChanged, useHandleEditingTabNavigation, useHandleEditingKeyDown, useHandleRowClickAway } from "./DxGridInner.hooks";
+import { useDxColumns, useTriggerSearch, useHandleOptionChanged, useHandleEditingTabNavigation, useHandleEditingKeyDown, useHandleRowClickAway } from "./DxGrid.hooks";
 import { createDxDataSource } from "./createDxDataSource";
 import { createLocalDxDataSource } from "./createLocalDxDataSource";
 import { convertDxFilterToAxelor } from "./dx-filter-converter";
@@ -159,18 +159,38 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
   // Ref pour accéder à l'instance DevExtreme DataGrid
   const dataGridRef = useRef<React.ElementRef<typeof DxDataGrid>>(null);
 
+  // ✅ FIX MULTI-GRID: ID unique par grille pour filtrer les clickAway events
+  // Plusieurs grilles O2M sur la même page reçoivent tous les clickAway events
+  // Seule la grille avec le bon gridId doit exécuter le save
+  const gridId = useMemo(() => Math.random().toString(36).slice(2, 8), []);
+
   // Mutex pour éviter la double sauvegarde (handleCellClick + handleFocusedRowChanged)
   const isSavingRef = useRef(false);
 
   // Ref pour stocker le formAtom de la ligne en édition (pour récupérer les valeurs lors du save)
   const editingRowFormAtomRef = useRef<any>(null);
 
+  // ✅ FIX DevExtreme v22: Store Jotai DÉDIÉ pour l'édition inline
+  // Ce store est créé UNE FOIS au niveau de DxGrid et partagé avec tous les DxEditRow.
+  // Cela garantit que tous les widgets et le save utilisent le MÊME store,
+  // évitant le problème où DevExtreme remonte plusieurs DxEditRow avec des stores différents.
+  const editingRowStore = useMemo(() => createStore(), []);
+
+  // Ref pour backup (utilisé par onEditRowFormAtomReady si besoin)
+  const editingRowStoreRef = useRef<any>(editingRowStore);
+
   // Ref pour stocker le record initial de la ligne en édition (pour comparaison avec isEqual)
   const initialRecordRef = useRef<DataRecord | null>(null);
 
-  // Callback pour que DxEditRow notifie son formAtom
-  const onEditRowFormAtomReady = useCallback((formAtom: any) => {
+  // Ref pour tracker si on crée une NOUVELLE ligne (handleInitNewRow) vs édite une existante (handleEditingStart)
+  // Utilisé pour décider si on appelle onSave (→ onNew trigger) ou onUpdate (→ onChange trigger)
+  const isNewRowRef = useRef<boolean>(false);
+
+  // Callback pour que DxEditRow notifie son formAtom ET son store dédié
+  // ✅ FIX DevExtreme v22: Reçoit maintenant { formAtom, store } au lieu de juste formAtom
+  const onEditRowFormAtomReady = useCallback(({ formAtom, store }: { formAtom: any, store: any }) => {
     editingRowFormAtomRef.current = formAtom;
+    editingRowStoreRef.current = store;
   }, []);
 
   // OPTIMISATION ANTI-FLICKERING avec atomFamily :
@@ -423,7 +443,8 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
           onDelete: localOnDelete,
         },
         selectionSync,
-        editingRowFormAtomRef  // ✅ Passer la ref pour lire les valeurs du formAtom
+        editingRowFormAtomRef,  // ✅ Passer la ref pour lire les valeurs du formAtom
+        editingRowStoreRef      // ✅ FIX DevExtreme v22: Passer le store dédié
       );
     } else {
       return createDxDataSource(dataStore, fieldsToFetch, selectionSync);
@@ -533,11 +554,15 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
     }
   }, [fieldHilitesMap, context]);
 
-  // Gérer l'annulation des modifications d'une ligne
-  const handleRevert = useCallback((e: any, key: any) => {
+  // Gérer l'annulation des modifications d'une ligne (bouton undo)
+  const handleUndo = useCallback((e: any, key: any) => {
     e.event?.stopPropagation();
     const gridInstance = getGridInstance(dataGridRef);
     gridInstance?.cancelEditData();
+
+    // ✅ FIX: Clear les refs pour éviter réutilisation de l'ancien formAtom lors du prochain edit
+    editingRowFormAtomRef.current = null;
+    initialRecordRef.current = null;
   }, []);
 
   // Gérer le toggle de sélection d'une ligne
@@ -690,7 +715,9 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
   const handleKeyDown = useHandleEditingKeyDown({
     dataGridRef,
     editingRowFormAtomRef,
+    editingRowStoreRef,  // ✅ FIX DevExtreme v22
     initialRecordRef,
+    isNewRowRef,
     localOnUpdate,
     localOnSave,
     isLocalMode
@@ -719,6 +746,9 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
     // handleEditingStart n'est PAS appelé pour les nouvelles lignes créées via addRow()
     // donc on stocke ici directement
     initialRecordRef.current = { ...e.data };
+
+    // Marquer que c'est une NOUVELLE ligne (pour que saveEditingRowAndClose appelle onSave)
+    isNewRowRef.current = true;
   }, [fields]);
 
   // Handler pour synchroniser la sélection DevExtreme avec le GridState Axelor (pour toolbar OneToMany)
@@ -750,19 +780,26 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
   // Gérer le clic en dehors de la grille pour auto-save (comme Axelor grid)
   // Ce handler est passé à DxEditRow via ClickAwayListener
   const handleRowClickAway = useHandleRowClickAway({
+    gridId,  // ✅ FIX MULTI-GRID: ID unique pour filtrer les clickAway events
     dataGridRef,
     isRowEditingRef,
     isSavingRef,
     editingRowFormAtomRef,
+    editingRowStoreRef,  // ✅ FIX DevExtreme v22
     initialRecordRef,
+    isNewRowRef,
     localOnUpdate,
     localOnSave,
     isLocalMode
   });
 
-  // Gérer le début d'édition d'une ligne
+  // Gérer le début d'édition d'une ligne EXISTANTE
   const handleEditingStart = useCallback((e: any) => {
     isRowEditingRef.current = true;
+
+    // Marquer que c'est une ligne EXISTANTE (même si ID négatif = non sauvée en DB)
+    // Seul handleInitNewRow doit mettre isNewRowRef à true
+    isNewRowRef.current = false;
 
     // Stocker le record initial pour comparaison lors du save (pattern Axelor)
     const gridInstance = getGridInstance(dataGridRef);
@@ -858,10 +895,10 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
     return getSelectColumnProps({
       rowSelectionAtomFamily,
       onToggleSelection: handleToggleSelection,
-      onRevert: handleRevert,
+      onUndo: handleUndo,
       headerCellRender: renderSelectAllHeader, // Passez la fonction de rendu de l'en-tête
     });
-  }, [handleToggleSelection, handleRevert, renderSelectAllHeader]); // Assurez-vous que renderSelectAllHeader est une dépendance
+  }, [handleToggleSelection, handleUndo, renderSelectAllHeader]); // Assurez-vous que renderSelectAllHeader est une dépendance
 
   // Mémoriser la configuration de la colonne d'édition
   const editColumnProps = useMemo(() => {
@@ -914,6 +951,7 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
   // Hook pour rendre les lignes de la grille DevExtreme
   // Utilisé pour rendre un FormRenderer complet quand la ligne est en édition
   const DxRow = useDxRow({
+    gridId,  // ✅ FIX MULTI-GRID: ID unique pour filtrer les clickAway events
     view,
     fields,
     context,
@@ -925,6 +963,10 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
     actionExecutor,
     parentFormAtom,
     onEditRowFormAtomReady,
+    isNewRowRef,  // ✅ Tracker si c'est une nouvelle ligne (pour trigger onNew)
+    editingRowFormAtomRef,  // ✅ FIX REMONTAGE: Passer formAtom existant si remontage DevExtreme
+    editingRowStoreRef,  // ✅ FIX REMONTAGE: Ref pour backup
+    editingRowStore,  // ✅ FIX STORE UNIQUE: Store partagé créé au niveau DxGrid
   });
 
   // Calculer le contexte de la grille (readonly, etc.) comme Axelor standard grid
@@ -1129,4 +1171,3 @@ function MasterDetailRenderer({
     </Box>
   );
 }
-

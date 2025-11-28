@@ -41,7 +41,6 @@ export function isNewRecord(record: DataRecord): boolean {
 export function getGridInstance(dataGridRef: RefObject<React.ElementRef<typeof DataGrid> | null>): any | null {
   const gridRef = dataGridRef.current;
   if (!gridRef) {
-    console.log('[getGridInstance] gridRef is null');
     return null;
   }
 
@@ -51,11 +50,6 @@ export function getGridInstance(dataGridRef: RefObject<React.ElementRef<typeof D
   const gridInstance = isMethod
     ? gridRef.instance()
     : gridRef.instance;
-
-  // Logger uniquement si ce n'est PAS une méthode (cas inhabituel)
-  if (!isMethod) {
-    console.log(`[getGridInstance] instance accessor: FIELD/GETTER, has instance: ${!!gridInstance}`);
-  }
 
   return gridInstance || null;
 }

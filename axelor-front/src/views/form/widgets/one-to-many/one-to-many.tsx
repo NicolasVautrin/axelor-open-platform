@@ -66,8 +66,8 @@ import { Grid as GridComponent, GridHandler } from "@/views/grid/builder";
 import { useCustomizePopup } from "@/views/grid/builder/customize";
 import { ExpandIcon } from "@/views/grid/builder/expandable";
 
-// Lazy load DxGridInner
-const DxGridInner = lazy(() => import("@/views/grid/dx-grid/DxGridInner"));
+// Lazy load DxGrid
+const DxGrid = lazy(() => import("@/views/grid/dx-grid/DxGrid"));
 
 import {
   CollectionTree,
@@ -2089,7 +2089,7 @@ function OneToManyInner({
           <ScopeProvider scope={MetaScope} value={viewMeta}>
             {gridViewData.css?.includes("dx-grid") ? (
               <Suspense fallback={<div>Loading DevExtreme Grid...</div>}>
-                <DxGridInner
+                <DxGrid
                   ref={gridRef as any}
                   meta={viewMeta}
                   dataStore={dataStore}
@@ -2100,6 +2100,11 @@ function OneToManyInner({
                   state={state}
                   setState={setState}
                   readonly={readonly || !canEdit}
+                  records={records}
+                  onUpdate={isManyToMany ? onSave : onO2MUpdate}
+                  onSave={isManyToMany ? onM2MSave : onO2MSave}
+                  onDelete={onDelete}
+                  onDiscard={onDiscard}
                 />
               </Suspense>
             ) : (

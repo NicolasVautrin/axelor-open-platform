@@ -467,7 +467,11 @@ interface UseHandleEditingEnterKeyDownParams {
   dataGridRef: any;
   // Pattern Axelor : accès au formAtom et handlers pour save manuel
   editingRowFormAtomRef?: React.MutableRefObject<any>;
+  // ✅ FIX DevExtreme v22: Store Jotai dédié pour éviter l'isolation de contexte des portails
+  editingRowStoreRef?: React.MutableRefObject<any>;
   initialRecordRef?: React.MutableRefObject<DataRecord | null>;
+  // Indique si on crée une NOUVELLE ligne (handleInitNewRow) vs édite une existante (handleEditingStart)
+  isNewRowRef?: React.MutableRefObject<boolean>;
   localOnUpdate?: (record: DataRecord) => Promise<DataRecord>;
   localOnSave?: (record: DataRecord) => Promise<DataRecord>;
   isLocalMode?: boolean;
@@ -488,7 +492,9 @@ interface UseHandleEditingEnterKeyDownParams {
 export function useHandleEditingEnterKeyDown({
   dataGridRef,
   editingRowFormAtomRef,
+  editingRowStoreRef,  // ✅ FIX DevExtreme v22
   initialRecordRef,
+  isNewRowRef,
   localOnUpdate,
   localOnSave,
   isLocalMode
@@ -536,13 +542,25 @@ export function useHandleEditingEnterKeyDown({
       await saveEditingRowAndClose(
         gridInstance,
         isLocalMode || false,
-        editingRowFormAtomRef,
+        editingRowFormAtomRef?.current,  // Valeur directe
+        editingRowStoreRef?.current,  // Valeur directe
         initialRecordRef,
+        isNewRowRef,
         localOnSave,
         localOnUpdate,
         getErrors,
         '[handleEnterKeyDown]'
       );
+
+      // ✅ FIX: Clear les refs AVANT de créer une nouvelle ligne
+      // Sinon le nouveau DxEditRow réutilise l'ancien formAtom et hérite des données
+      if (editingRowFormAtomRef) {
+        editingRowFormAtomRef.current = null;
+      }
+      if (initialRecordRef) {
+        initialRecordRef.current = null;
+      }
+      // Note: isNewRowRef sera remis à true par handleInitNewRow lors de addRow()
 
       if (wasLastRow) {
         // On était sur la dernière ligne → ajouter une nouvelle ligne
@@ -577,7 +595,7 @@ export function useHandleEditingEnterKeyDown({
     } catch (error) {
       console.error('[DxGrid] Enter save failed:', error);
     }
-  }, [dataGridRef, isPopupOpen, editingRowFormAtomRef, initialRecordRef, localOnUpdate, localOnSave, isLocalMode]);
+  }, [dataGridRef, isPopupOpen, editingRowFormAtomRef, editingRowStoreRef, initialRecordRef, localOnUpdate, localOnSave, isLocalMode]);
 }
 
 /**
@@ -590,7 +608,9 @@ export function useHandleEditingEnterKeyDown({
 export function useHandleEditingKeyDown({
   dataGridRef,
   editingRowFormAtomRef,
+  editingRowStoreRef,  // ✅ FIX: Ajouter le store dédié
   initialRecordRef,
+  isNewRowRef,
   localOnUpdate,
   localOnSave,
   isLocalMode
@@ -599,7 +619,9 @@ export function useHandleEditingKeyDown({
   const handleEnter = useHandleEditingEnterKeyDown({
     dataGridRef,
     editingRowFormAtomRef,
+    editingRowStoreRef,  // ✅ FIX: Passer le store dédié
     initialRecordRef,
+    isNewRowRef,
     localOnUpdate,
     localOnSave,
     isLocalMode
@@ -676,12 +698,18 @@ function useIsPopupOpen() {
 }
 
 interface UseHandleRowClickAwayParams {
+  // ✅ FIX MULTI-GRID: ID unique par grille pour filtrer les clickAway events
+  gridId: string;
   dataGridRef: any;
   isRowEditingRef: React.MutableRefObject<boolean>;
   isSavingRef: React.MutableRefObject<boolean>;
   // Pattern Axelor : accès au formAtom et handlers pour save manuel
   editingRowFormAtomRef?: React.MutableRefObject<any>;
+  // ✅ FIX DevExtreme v22: Store Jotai dédié pour éviter l'isolation de contexte des portails
+  editingRowStoreRef?: React.MutableRefObject<any>;
   initialRecordRef?: React.MutableRefObject<DataRecord | null>;
+  // Indique si on crée une NOUVELLE ligne (handleInitNewRow) vs édite une existante (handleEditingStart)
+  isNewRowRef?: React.MutableRefObject<boolean>;
   localOnUpdate?: (record: DataRecord) => Promise<DataRecord>;
   localOnSave?: (record: DataRecord) => Promise<DataRecord>;
   isLocalMode?: boolean;
@@ -701,11 +729,14 @@ interface UseHandleRowClickAwayParams {
  * et détecte les portals (Floating UI, MUI) pour éviter de sauvegarder quand on clique sur des dropdowns.
  */
 export function useHandleRowClickAway({
+  gridId,  // ✅ FIX MULTI-GRID: ID unique pour filtrer les clickAway events
   dataGridRef,
   isRowEditingRef,
   isSavingRef,
   editingRowFormAtomRef,
+  editingRowStoreRef,  // ✅ FIX DevExtreme v22
   initialRecordRef,
+  isNewRowRef,
   localOnUpdate,
   localOnSave,
   isLocalMode
@@ -713,8 +744,19 @@ export function useHandleRowClickAway({
   const isInRowEditingContext = useInRowEditingContext();
   const getErrors = useGetErrors(); // ← Validation Axelor
 
-  return useCallback(async (event: Event) => {
+  // ✅ FIX: Le callback reçoit maintenant store, formAtom, gridId et rowKey LOCAUX depuis DxEditRow
+  // Cela évite les conflits quand plusieurs grilles O2M sont sur la même page
+  // et garantit que seul le DxEditRow de la ligne en édition sauvegarde
+  return useCallback(async (event: Event, localStore?: any, localFormAtom?: any, localGridId?: string, localRowKey?: any) => {
     if (!isRowEditingRef.current || isSavingRef.current) {
+      return;
+    }
+
+    // ✅ FIX MULTI-GRID: Vérifier que ce handleClickAway correspond à LA grille en édition
+    // Plusieurs grilles O2M reçoivent le même événement clickAway, mais seule celle
+    // dont le gridId correspond doit exécuter le save
+    if (localGridId && localGridId !== gridId) {
+      // Ce clickAway vient d'une AUTRE grille, ignorer
       return;
     }
 
@@ -723,10 +765,19 @@ export function useHandleRowClickAway({
       return;
     }
 
-    const clickedElement = event.target as HTMLElement;
-
     // 1. Récupérer la ligne en édition (celle qui contient les widgets de formulaire)
     const editingRowKey = gridInstance.option('editing.editRowKey');
+
+    // ✅ FIX ROW MISMATCH: Vérifier que ce DxEditRow correspond à LA ligne en édition
+    // DevExtreme peut rendre plusieurs DxEditRow (lignes virtuelles, re-renders),
+    // chacun avec son propre store. Seul celui dont rowKey === editRowKey doit sauvegarder.
+    if (localRowKey !== undefined && localRowKey !== null && editingRowKey !== undefined && editingRowKey !== null) {
+      if (localRowKey !== editingRowKey) {
+        return;
+      }
+    }
+
+    const clickedElement = event.target as HTMLElement;
 
     if (editingRowKey === undefined || editingRowKey === null) {
       return;
@@ -768,41 +819,59 @@ export function useHandleRowClickAway({
     isSavingRef.current = true;
 
     try {
-      // Utiliser la fonction factorisée pour sauvegarder
+      // ✅ FIX: Utiliser les valeurs LOCALES passées par DxEditRow (priorité)
+      // au lieu des refs partagées qui peuvent être écrasées par d'autres grilles O2M
       await saveEditingRowAndClose(
         gridInstance,
         isLocalMode || false,
-        editingRowFormAtomRef,
+        localFormAtom || editingRowFormAtomRef?.current,  // Local en priorité
+        localStore || editingRowStoreRef?.current,  // Local en priorité
         initialRecordRef,
+        isNewRowRef,
         localOnSave,
         localOnUpdate,
         getErrors,
         '[handleRowClickAway]'
       );
+
+      // ✅ FIX: Clear les refs après save pour éviter que la prochaine ligne réutilise l'ancien formAtom
+      // (cas où l'utilisateur clique en dehors puis appuie sur "+")
+      if (editingRowFormAtomRef) {
+        editingRowFormAtomRef.current = null;
+      }
+      if (initialRecordRef) {
+        initialRecordRef.current = null;
+      }
     } catch (error) {
       console.error("[DxGrid] Auto-save failed:", error);
     } finally {
       isSavingRef.current = false;
     }
-  }, [dataGridRef, isRowEditingRef, isSavingRef, isInRowEditingContext, editingRowFormAtomRef, initialRecordRef, localOnUpdate, localOnSave, isLocalMode]);
+  }, [gridId, dataGridRef, isRowEditingRef, isSavingRef, isInRowEditingContext, editingRowFormAtomRef, editingRowStoreRef, initialRecordRef, isNewRowRef, localOnUpdate, localOnSave, isLocalMode]);
 }
 
 /**
  * Fonction factorisée pour sauvegarder la ligne en édition selon le pattern Axelor
  * Utilisée par handleRowClickAway ET handleKeyDown (Enter)
+ *
+ * @param formAtom - Le formAtom de la ligne en édition (valeur directe, pas une ref)
+ * @param store - Le store Jotai dédié à cette ligne (valeur directe, pas une ref)
+ * @param isNewRowRef - Indique si on crée une NOUVELLE ligne (handleInitNewRow) vs édite une existante
  */
 async function saveEditingRowAndClose(
   gridInstance: any,
   isLocalMode: boolean,
-  editingRowFormAtomRef: React.RefObject<any> | undefined,
+  formAtom: any,  // ✅ FIX: Valeur directe au lieu de ref (évite conflits entre grilles O2M)
+  store: any,  // ✅ FIX: Valeur directe au lieu de ref
   initialRecordRef: React.RefObject<DataRecord | null> | undefined,
+  isNewRowRef: React.RefObject<boolean> | undefined,
   localOnSave: ((record: any) => Promise<any>) | undefined,
   localOnUpdate: ((record: any) => Promise<any>) | undefined,
   getErrors: ((formState?: any) => any) | undefined,
   logPrefix: string = '[saveEditingRow]'
 ) {
   // Pattern Axelor : Si en mode local (O2M), sauvegarder manuellement via formAtom
-  if (isLocalMode && editingRowFormAtomRef?.current && initialRecordRef?.current) {
+  if (isLocalMode && formAtom && initialRecordRef?.current) {
     // 1. Blur-focus l'input actif pour finaliser la valeur (comme Axelor)
     const activeElement = document.activeElement as HTMLElement;
     if (activeElement && activeElement.blur) {
@@ -815,8 +884,11 @@ async function saveEditingRowAndClose(
     }
 
     // 2. Lire le formAtom pour obtenir les valeurs modifiées
-    const store = getDefaultStore();
-    const formState = store.get(editingRowFormAtomRef.current) as any;
+    // ✅ FIX DevExtreme v22: Utiliser le store DÉDIÉ passé par DxEditRow au lieu de getDefaultStore()
+    // DevExtreme v22 utilise createPortal() qui casse le contexte React, donc getDefaultStore()
+    // retourne une instance différente de celle utilisée par les widgets dans le portal
+    const storeToUse = store || getDefaultStore();
+    const formState = storeToUse.get(formAtom) as any;
 
     // 3. Valider les champs required AVANT de sauvegarder (pattern Axelor)
     if (getErrors) {
@@ -831,15 +903,21 @@ async function saveEditingRowAndClose(
     const currentRecord = formState?.record;
 
     // 3. Comparer avec le record original (isEqual)
-    const isNew = !initialRecordRef.current.id || initialRecordRef.current.id < 0;
+    // IMPORTANT: isNew est basé sur isNewRowRef (set dans handleInitNewRow/handleEditingStart)
+    // et NON sur l'ID négatif. Cela permet de distinguer :
+    // - Création d'une NOUVELLE ligne (handleInitNewRow → isNewRowRef=true → onSave → trigger onNew)
+    // - Edition d'une ligne EXISTANTE avec ID négatif (handleEditingStart → isNewRowRef=false → onUpdate → trigger onChange)
+    const isNew = isNewRowRef?.current ?? false;
     const hasChanges = !isEqual(initialRecordRef.current, currentRecord);
 
     // 4. Si changé : appeler onUpdate/onSave directement (comme Axelor)
     if (hasChanges || isNew) {
       try {
         if (isNew && localOnSave) {
+          dxLog(`${logPrefix} Calling localOnSave (isNew=true)`);
           await localOnSave(currentRecord);
         } else if (!isNew && localOnUpdate) {
+          dxLog(`${logPrefix} Calling localOnUpdate (hasChanges=true)`);
           await localOnUpdate(currentRecord);
         }
       } catch (error) {

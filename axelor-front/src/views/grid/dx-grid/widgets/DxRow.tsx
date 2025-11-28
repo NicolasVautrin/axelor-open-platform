@@ -6,6 +6,8 @@ import { DxEditRow } from "./DxEditRow";
 import { DxDisplayRow } from "./DxDisplayRow";
 
 interface UseDxRowParams {
+  /** ✅ FIX MULTI-GRID: ID unique par grille pour filtrer les clickAway events */
+  gridId: string;
   view: GridView;
   fields: Record<string, any>;
   context: any;
@@ -17,6 +19,13 @@ interface UseDxRowParams {
   actionExecutor?: any;
   parentFormAtom?: any;
   onEditRowFormAtomReady?: (formAtom: any) => void;
+  /** Ref pour tracker si on crée une NOUVELLE ligne (handleInitNewRow) vs édite une existante */
+  isNewRowRef?: React.MutableRefObject<boolean>;
+  /** ✅ FIX: Ref pour stocker le formAtom de la ligne en édition (évite perte lors remontage) */
+  editingRowFormAtomRef?: React.MutableRefObject<any>;
+  editingRowStoreRef?: React.MutableRefObject<any>;
+  /** ✅ FIX STORE UNIQUE: Store partagé créé au niveau DxGrid, passé à tous les DxEditRow */
+  editingRowStore?: any;
 }
 
 /**
@@ -25,6 +34,7 @@ interface UseDxRowParams {
  * IMPORTANT: dataRowRender reçoit rowInfo comme prop (voir DevExtreme docs)
  */
 export function useDxRow({
+  gridId,
   view,
   fields,
   context,
@@ -36,6 +46,10 @@ export function useDxRow({
   actionExecutor,
   parentFormAtom,
   onEditRowFormAtomReady,
+  isNewRowRef,
+  editingRowFormAtomRef,
+  editingRowStoreRef,
+  editingRowStore,  // ✅ FIX STORE UNIQUE: Store partagé créé au niveau DxGrid
 }: UseDxRowParams) {
   const DxRow = useCallback((rowInfo: any) => {
     // Si pas de data, ne rien rendre (peut arriver pour des lignes virtuelles ou group rows)
@@ -55,10 +69,12 @@ export function useDxRow({
 
     // Si la ligne est en mode édition, rendre avec DxEditRow (formulaire)
     if (isEditing) {
-      // Le formAtom est maintenant créé par DxEditRow via useFormHandlers()
+      // ✅ FIX RACE CONDITION: Passer le REF lui-même (pas sa valeur) pour mise à jour synchrone
+      // DevExtreme monte plusieurs DxEditRow en parallèle, et chacun doit voir les updates des autres
       return (
         <DxEditRow
           key={rowKey}  // ✅ Clé stable pour éviter démontage/remontage lors des re-renders DevExtreme
+          gridId={gridId}  // ✅ FIX MULTI-GRID: ID unique pour filtrer les clickAway events
           rowData={data}
           rowKey={rowKey}
           columns={rowInfo.columns}  // Utiliser rowInfo.columns (inclut les colonnes système)
@@ -70,6 +86,9 @@ export function useDxRow({
           onClickAway={handleRowClickAway}  // ClickAwayListener pour auto-save (comme Axelor)
           parentFormAtom={parentFormAtom}  // Parent formAtom pour triggers O2M (onChange/onNew)
           onFormAtomReady={onEditRowFormAtomReady}  // Callback pour récupérer le formAtom
+          isNewRowRef={isNewRowRef}  // ✅ FIX DOUBLE TRIGGER: Passer le REF pour pouvoir le reset après exécution de onNew
+          editingRowFormAtomRef={editingRowFormAtomRef}  // ✅ FIX RACE CONDITION: Passer le ref pour lecture/écriture synchrone
+          existingStore={editingRowStore}  // ✅ FIX STORE UNIQUE: Utiliser le store partagé créé au niveau DxGrid
         />
       );
     }
@@ -89,7 +108,7 @@ export function useDxRow({
         dataGridRef={dataGridRef}  // Passer la ref pour construire l'objet event
       />
     );
-  }, [view, fields, context, columnPropsMap, handleCellClick, dataGridRef, handleRowClickAway, onUpdate, actionExecutor, parentFormAtom, onEditRowFormAtomReady]);
+  }, [gridId, view, fields, context, columnPropsMap, handleCellClick, dataGridRef, handleRowClickAway, onUpdate, actionExecutor, parentFormAtom, onEditRowFormAtomReady, isNewRowRef, editingRowFormAtomRef, editingRowStoreRef, editingRowStore]);
 
   return DxRow;
 }

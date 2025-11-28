@@ -154,3 +154,45 @@
 .dx-datagrid-rowsview .dx-data-row td:not(.dx-editor-cell)[aria-label*="quantité"] {
   text-align: right !important;
 }
+
+/* ===== COLONNES SYSTEME (Select/Edit) - Homogénéité avec Axelor ===== */
+
+/* Supprimer la bordure des colonnes sticky (select/edit) pour un look plus épuré */
+.dx-datagrid .dx-datagrid-sticky-column-left {
+  border-right-width: 0 !important;
+}
+
+/* Réduire la largeur des colonnes système (30px comme Axelor au lieu de 40px) */
+.dx-datagrid-headers td[aria-colindex="1"],
+.dx-datagrid-headers td[aria-colindex="2"],
+.dx-datagrid-rowsview td[aria-colindex="1"],
+.dx-datagrid-rowsview td[aria-colindex="2"] {
+  width: 30px !important;
+  min-width: 30px !important;
+  max-width: 30px !important;
+  padding: 4px !important;
+}
+
+/* Centrer le contenu des colonnes système */
+.dx-datagrid td[aria-colindex="1"],
+.dx-datagrid td[aria-colindex="2"] {
+  text-align: center !important;
+}
+/* ===== FOCUSED ROW ===== */
+
+/* Désactiver le style bleu de la focusedRow (comme Axelor standard) */
+/* Structure: tbody.dx-row-focused > tr > td.dx-cell */
+.dx-datagrid-rowsview .dx-row-focused.dx-data-row {
+  background-color: transparent !important;
+}
+
+/* Cibler les cellules td.dx-cell dans la ligne focused (descendant, pas direct child) */
+.dx-datagrid-rowsview .dx-row-focused.dx-data-row td.dx-cell {
+  background-color: #fff !important;
+  color: #333 !important;
+}
+
+/* Cibler aussi les td sans classe dx-cell (colonnes système) */
+.dx-datagrid-rowsview .dx-row-focused.dx-data-row td {
+  background-color: #fff !important;
+}

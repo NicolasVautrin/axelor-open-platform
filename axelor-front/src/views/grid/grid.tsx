@@ -91,7 +91,7 @@ import { getSearchFilter } from "./renderers/search/utils";
 import styles from "./grid.module.scss";
 
 // Import du composant DevExtreme Grid
-const DxGridInner = lazy(() => import("./dx-grid/DxGridInner"));
+const DxGridInner = lazy(() => import("./dx-grid/DxGrid"));
 
 export function Grid(props: ViewProps<GridView>) {
   const { action } = useViewTab();
