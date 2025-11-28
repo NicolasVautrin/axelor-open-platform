@@ -44,12 +44,8 @@ export function getGridInstance(dataGridRef: RefObject<React.ElementRef<typeof D
     return null;
   }
 
-  // .instance peut être un getter ou une fonction selon la version
-  const instanceType = typeof gridRef.instance;
-  const isMethod = instanceType === 'function';
-  const gridInstance = isMethod
-    ? gridRef.instance()
-    : gridRef.instance;
+  // .instance est un getter dans DevExtreme v22
+  const gridInstance = gridRef.instance;
 
   return gridInstance || null;
 }

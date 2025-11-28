@@ -16,12 +16,25 @@ apply plugin: com.axelor.gradle.support.ChangelogSupport
 apply from: "version.gradle"
 
 def gitGitRevision(p) {
-  def gitFolder = "$p.projectDir/.git/"
-  if( !new File(gitFolder).exists() ) {
-    gitFolder = "$rootProject.projectDir/.git/"
+  def gitPath = new File("$p.projectDir/.git")
+  if( !gitPath.exists() ) {
+    gitPath = new File("$rootProject.projectDir/.git")
   }
-  if( !new File(gitFolder).exists() ) {
+  if( !gitPath.exists() ) {
     return null
+  }
+
+  // Support git worktree: .git is a file containing "gitdir: <path>"
+  def gitFolder
+  if( gitPath.isFile() ) {
+    def content = gitPath.text.trim()
+    if( content.startsWith("gitdir:") ) {
+      gitFolder = content.substring(7).trim() + "/"
+    } else {
+      return null
+    }
+  } else {
+    gitFolder = gitPath.absolutePath + "/"
   }
 
   def head = new File(gitFolder + "HEAD").text.split(":")
