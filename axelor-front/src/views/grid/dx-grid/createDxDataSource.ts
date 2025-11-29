@@ -73,17 +73,28 @@ export function createDxDataSource(
         if (loadOptions.filter) {
           const axelorFilter = convertDxFilterToAxelor(loadOptions.filter);
           if (axelorFilter) {
+            // S'assurer que le filtre est toujours dans une structure Criteria
+            // L'API Axelor attend { operator, criteria: [...] }, pas un Filter direct
+            const wrappedFilter = (axelorFilter as any).criteria
+              ? axelorFilter  // Déjà une structure Criteria
+              : { operator: "and", criteria: [axelorFilter] };  // Wrapper le Filter simple
+
             // Fusionner avec le filtre existant du dataStore
-            if (searchOptions.filter) {
-              // Si un filtre existe déjà, créer un AND avec le nouveau filtre
+            // Vérifier que le filtre existant n'est pas vide (après un reset)
+            const hasExistingFilter = searchOptions.filter &&
+              Object.keys(searchOptions.filter).length > 0 &&
+              (searchOptions.filter.criteria?.length > 0 || searchOptions.filter.fieldName);
+
+            if (hasExistingFilter) {
+              // Si un filtre valide existe déjà, créer un AND avec le nouveau filtre
               searchOptions.filter = {
                 operator: "and",
-                criteria: [searchOptions.filter, axelorFilter],
+                criteria: [searchOptions.filter, wrappedFilter],
               };
             } else {
-              searchOptions.filter = axelorFilter;
+              searchOptions.filter = wrappedFilter;
             }
-            dxLog("[DxDataSource] Converted filter:", axelorFilter);
+            dxLog("[DxDataSource] Converted filter:", wrappedFilter);
           }
         }
 

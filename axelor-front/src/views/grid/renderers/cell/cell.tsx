@@ -4,7 +4,7 @@ import { Box } from "@axelor/ui";
 
 import { Tooltip } from "@/components/tooltip";
 import { useHilites } from "@/hooks/use-parser";
-import { Field } from "@/services/client/meta.types";
+import { Field, Schema } from "@/services/client/meta.types";
 import { legacyClassNames } from "@/styles/legacy";
 import { toCamelCase } from "@/utils/names";
 import { FieldDetails } from "@/views/form/builder";
@@ -17,7 +17,7 @@ const getWidget = (name?: string) =>
 
 export function Cell(props: GridCellProps) {
   const { view, viewContext, data, value, record } = props;
-  const { type, tooltip, widget, serverType, hilites } = data as Field;
+  const { type, tooltip, widget, serverType, hilites } = data as Field & Schema;
   const { children, style, className, onClick } =
     props as React.HTMLAttributes<HTMLDivElement>;
 

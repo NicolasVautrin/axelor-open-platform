@@ -11,7 +11,7 @@ import { Field, GridView } from "@/services/client/meta.types";
 import { useGridState } from "./utils";
 import { DataRecord } from "@/services/client/data.types";
 import { resetView } from "@/services/client/meta";
-import { saveView } from "@/services/client/meta-cache";
+import { findFields, saveView } from "@/services/client/meta-cache";
 import { session } from "@/services/client/session";
 import { useSelector } from "@/hooks/use-relation";
 import { nextId } from "@/views/form/builder/utils";
@@ -101,7 +101,25 @@ function CustomizeDialog({
     [view, shared, state.rows, saveWidths, records],
   );
 
-  const handleSelect = useCallback(() => {
+  const handleSelect = useCallback(async () => {
+    if (!view?.model) return;
+
+    // Récupérer les champs depuis le cache des métadonnées (pas de requête serveur supplémentaire)
+    const metaData = await findFields(view.model);
+    if (!metaData?.fields) return;
+
+    // Convertir les champs en records avec labels traduits
+    const excludedFields = ["id", "version"];
+    const allFields: DataRecord[] = Object.values(metaData.fields)
+      .filter((field) => !excludedFields.includes(field.name))
+      .map((field, index) => ({
+        id: index + 1,
+        name: field.name,
+        type: "field",
+        label: i18n.get(field.title || toTitleCase(field.name)),
+      }));
+
+    // Ajouter les extra fields (champs pointés, buttons, etc.)
     const extraFields = view?.items
       ?.filter(
         (item) =>
@@ -111,12 +129,23 @@ function CustomizeDialog({
         id: nextId(),
         name: item.name,
         type: "field",
-        label: item.title || item.autoTitle,
+        label: i18n.get(item.title || item.autoTitle || toTitleCase(item.name ?? "")),
       }));
+    extraFields?.forEach((ef) => {
+      if (!allFields.find((f) => f.name === ef.name)) {
+        allFields.push(ef);
+      }
+    });
+
+    // Trier par label
+    allFields.sort((a, b) => String(a.label).localeCompare(String(b.label)));
+
+    // Ouvrir le sélecteur avec les données locales
     showSelector({
       model: "com.axelor.meta.db.MetaField",
       title: i18n.get("Columns"),
       multiple: true,
+      limit: 500,
       view: {
         name: "custom-meta-field-grid",
         fields: {
@@ -132,13 +161,13 @@ function CustomizeDialog({
           },
         },
         type: "grid",
+        freeSearch: "all",
         items: [
           {
             type: "field",
             name: "label",
             title: "Title",
             sortable: false,
-            searchable: false,
           },
           {
             type: "field",
@@ -153,33 +182,46 @@ function CustomizeDialog({
       domain:
         "self.metaModel.fullName = :_modelName AND self.name NOT IN :_excludedFieldNames",
       context: {
-        _excludedFieldNames: ["id", "version"],
+        _excludedFieldNames: excludedFields,
         _model: "com.axelor.meta.db.MetaField",
         _modelName: view.model,
       },
       onGridSearch: (records, page, search) => {
-        let recs: DataRecord[] = [];
-        forEach(records, (rec) => {
-          recs.push({
-            ...rec,
-            label: i18n.get(rec.label || toTitleCase(rec.name ?? "")),
+        // Utiliser les champs du cache (allFields) au lieu des records serveur
+        // Cela permet de chercher sur les labels traduits
+        let filteredFields = allFields;
+
+        // 1. Filtre libre (toolbar search)
+        const freeSearchTerm = search?._freeSearch
+          ? unaccent(search._freeSearch.toLowerCase())
+          : null;
+
+        if (freeSearchTerm) {
+          filteredFields = filteredFields.filter((f) => {
+            const fieldName = f.name ? unaccent(String(f.name).toLowerCase()) : "";
+            const fieldLabel = f.label ? unaccent(String(f.label).toLowerCase()) : "";
+            return fieldName.includes(freeSearchTerm) || fieldLabel.includes(freeSearchTerm);
           });
-        });
-        if (page.offset === 0) {
-          // add the extra fields at the end of the first page only
-          let extra = extraFields;
-          if (search && search.name) {
-            extra = extraFields?.filter(
-              (f) =>
-                f.name &&
-                unaccent(f.name.toLowerCase()).includes(
-                  unaccent(search.name.toLowerCase()),
-                ),
-            );
-          }
-          extra?.forEach((i) => recs.push(i));
         }
-        return recs;
+
+        // 2. Filtres de colonnes individuels (row filters)
+        if (search?.label) {
+          const labelTerm = unaccent(String(search.label).toLowerCase());
+          filteredFields = filteredFields.filter((f) => {
+            const fieldLabel = f.label ? unaccent(String(f.label).toLowerCase()) : "";
+            return fieldLabel.includes(labelTerm);
+          });
+        }
+
+        if (search?.name) {
+          const nameTerm = unaccent(String(search.name).toLowerCase());
+          filteredFields = filteredFields.filter((f) => {
+            const fieldName = f.name ? unaccent(String(f.name).toLowerCase()) : "";
+            return fieldName.includes(nameTerm);
+          });
+        }
+
+        return filteredFields;
       },
       onSelect: (selected) => {
         setRecords((records) => [
@@ -187,7 +229,9 @@ function CustomizeDialog({
           ...(selected || [])
             .filter((s) => !records.find((r) => r.name === s.name))
             .map((record) => ({
-              ...record,
+              // Créer un nouveau record avec un ID unique (nextId génère des IDs négatifs uniques)
+              id: nextId(),
+              name: record.name,
               type: "field",
               title: record.label,
             })),

@@ -1,9 +1,10 @@
 import React, { useMemo } from "react";
 import { Box } from "@axelor/ui";
 import { Cell } from "@/views/grid/renderers/cell/cell";
-import type { Field, GridView } from "@/services/client/meta.types";
+import type { Field, GridView, Viewer } from "@/services/client/meta.types";
 import type { DataContext } from "@/services/client/data.types";
 import { getWidget } from "@/views/grid/builder/utils";
+import { TemplateRenderer } from "@/hooks/use-parser";
 import styles from "@/views/grid/grid.module.scss";
 
 interface DxDisplayCellProps {
@@ -134,6 +135,47 @@ export const DxDisplayCell = React.memo(
     // Exclure les selections et ratings même s'ils ont un serverType numérique
     const isNumeric = ["DECIMAL", "INTEGER", "LONG"].includes(enrichedField.serverType ?? "")
       && !(enrichedField.selection || enrichedField.widget === "rating");
+
+    // Récupérer le viewer du field (si défini dans le XML)
+    const viewer = field.viewer as Viewer | undefined;
+
+    // Préparer le contexte et les options pour le TemplateRenderer (comme x-widgets/viewer.tsx)
+    const viewerContext = useMemo(() => {
+      if (!viewer?.template) return null;
+
+      const context = {
+        _model: view?.model,
+        ...viewContext,
+        ...cellData.data,  // Données du record
+      };
+
+      // Fusionner les fields du viewer avec les allFields
+      const fields = {
+        ...props.allFields,
+        ...(viewer.fields ?? {}),
+      };
+
+      return {
+        context,
+        options: {
+          fields,
+          execute: actionExecutor?.execute?.bind(actionExecutor),
+        },
+      };
+    }, [viewer, view?.model, viewContext, cellData.data, props.allFields, actionExecutor]);
+
+    // Si un viewer est défini avec un template, l'utiliser à la place de Cell
+    if (viewer?.template && viewerContext) {
+      return (
+        <Box d="flex" style={{ width: "100%", height: "100%" }}>
+          <TemplateRenderer
+            template={viewer.template}
+            context={viewerContext.context}
+            options={viewerContext.options}
+          />
+        </Box>
+      );
+    }
 
     // Si numérique, wrapper Cell dans une Box avec la classe .number (comme GridColumn)
     if (isNumeric) {

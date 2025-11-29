@@ -5,6 +5,9 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
+  '@monaco-editor/loader@1.6.1':
+    hash: b3omfsvxxgk4eipgj4v7y2o4mq
+    path: patches/@monaco-editor__loader@1.6.1.patch
   bootstrap-sass@2.3.2:
     hash: 7jwz2hglnrq3hxry2suq775qi4
     path: patches/bootstrap-sass@2.3.2.patch
@@ -17,8 +20,8 @@ importers:
   .:
     dependencies:
       '@axelor/ui':
-        specifier: ^0.4.5
-        version: 0.4.6(@popperjs/core@2.11.8)(@types/hoist-non-react-statics@3.3.7(@types/react@18.3.26))(@types/node@22.19.1)(@types/react-dom@18.3.7(@types/react@18.3.26))(@types/react@18.3.26)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(scheduler@0.23.2)
+        specifier: 0.4.5
+        version: 0.4.5(@popperjs/core@2.11.8)(@types/hoist-non-react-statics@3.3.7(@types/react@18.3.26))(@types/node@22.19.1)(@types/react-dom@18.3.7(@types/react@18.3.26))(@types/react@18.3.26)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(scheduler@0.23.2)
       '@babel/standalone':
         specifier: ^7.26.4
         version: 7.28.5
@@ -236,8 +239,8 @@ packages:
   '@asamuzakjp/css-color@3.2.0':
     resolution: {integrity: sha512-K1A6z8tS3XsmCMM86xoWdn7Fkdn9m6RSVtocUrJYIwZnFVkng/PvkEoWtOWmP+Scc6saYWHWZYbndEEXxl24jw==}
 
-  '@axelor/ui@0.4.6':
-    resolution: {integrity: sha512-wxUgrdJIR+eOCjW0rE2ERGwPooSTc3pJePTrPcEy+qhqJi3tRBNLSjMrdcC6KKW3DCWvDaIOZaPJ4ljbh2gMAQ==}
+  '@axelor/ui@0.4.5':
+    resolution: {integrity: sha512-bAq+9F+DQQcvCXrZBQ0e08d8VAX13lWWSO8JZc1dA3hyZlVZCnBXVBnwbNjwgTDdOMQc29cpw8XOvIZGHOlPcA==}
     peerDependencies:
       react: ^18.3.1-0
       react-dom: ^18.3.1-0
@@ -4057,7 +4060,7 @@ snapshots:
       '@csstools/css-tokenizer': 3.0.4
       lru-cache: 10.4.3
 
-  '@axelor/ui@0.4.6(@popperjs/core@2.11.8)(@types/hoist-non-react-statics@3.3.7(@types/react@18.3.26))(@types/node@22.19.1)(@types/react-dom@18.3.7(@types/react@18.3.26))(@types/react@18.3.26)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(scheduler@0.23.2)':
+  '@axelor/ui@0.4.5(@popperjs/core@2.11.8)(@types/hoist-non-react-statics@3.3.7(@types/react@18.3.26))(@types/node@22.19.1)(@types/react-dom@18.3.7(@types/react@18.3.26))(@types/react@18.3.26)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(scheduler@0.23.2)':
     dependencies:
       '@emotion/is-prop-valid': 1.4.0
       '@floating-ui/react': 0.26.28(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -5084,13 +5087,13 @@ snapshots:
 
   '@material-symbols/metadata@0.29.3': {}
 
-  '@monaco-editor/loader@1.6.1':
+  '@monaco-editor/loader@1.6.1(patch_hash=b3omfsvxxgk4eipgj4v7y2o4mq)':
     dependencies:
       state-local: 1.0.7
 
   '@monaco-editor/react@4.7.0(monaco-editor@0.50.0)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
-      '@monaco-editor/loader': 1.6.1
+      '@monaco-editor/loader': 1.6.1(patch_hash=b3omfsvxxgk4eipgj4v7y2o4mq)
       monaco-editor: 0.50.0
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)

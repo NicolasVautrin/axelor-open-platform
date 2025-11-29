@@ -23,19 +23,27 @@ interface DxCellProps {
  * - Styles inline pour position: sticky et left/right offset
  * - Largeur et padding de la cellule
  *
+ * Note: On utilise stickyLeft/stickyRight (propriétés custom) au lieu de fixed (DevExtreme natif)
+ * car fixed crée des tables séparées qui cassent l'alignement avec dataRowRender.
+ *
  * Utilisé par DxEditRow et DxDisplayRow pour avoir un rendu cohérent.
  */
 export const DxCell = React.memo<DxCellProps>(
   function DxCell({ col, children, leftOffset, rightOffset, className: extraClassName, style: extraStyle }) {
+    // Détecter si la colonne est sticky (custom) ou fixed (DevExtreme natif)
+    const isSticky = col.stickyLeft || col.stickyRight || col.fixed;
+    const isStickyLeft = col.stickyLeft || (col.fixed && col.fixedPosition === "left");
+    const isStickyRight = col.stickyRight || (col.fixed && col.fixedPosition === "right");
+
     // Calculer les classes CSS
     const className = useMemo(() => {
       const classes = ["dx-cell"];
 
-      if (col.fixed) {
+      if (isSticky) {
         classes.push("dx-col-fixed");
-        if (col.fixedPosition === "left") {
+        if (isStickyLeft) {
           classes.push("dx-col-fixed-left");
-        } else if (col.fixedPosition === "right") {
+        } else if (isStickyRight) {
           classes.push("dx-col-fixed-right");
         }
       }
@@ -45,7 +53,7 @@ export const DxCell = React.memo<DxCellProps>(
       }
 
       return classes.join(" ");
-    }, [col.fixed, col.fixedPosition, extraClassName]);
+    }, [isSticky, isStickyLeft, isStickyRight, extraClassName]);
 
     // Calculer les styles inline
     const style = useMemo(() => {
@@ -58,20 +66,22 @@ export const DxCell = React.memo<DxCellProps>(
         ...extraStyle,
       };
 
-      if (col.fixed) {
+      if (isSticky) {
         baseStyle.position = "sticky";
         baseStyle.zIndex = 100;
-        baseStyle.backgroundColor = "inherit"; // Éviter la transparence lors du scroll
+        // Utiliser une couleur de fond opaque pour éviter la transparence lors du scroll
+        // Note: Le dark mode sera géré via CSS, ici on met le fond light mode par défaut
+        baseStyle.backgroundColor = "#fff";
 
-        if (col.fixedPosition === "left" && leftOffset !== undefined) {
+        if (isStickyLeft && leftOffset !== undefined) {
           baseStyle.left = leftOffset;
-        } else if (col.fixedPosition === "right" && rightOffset !== undefined) {
+        } else if (isStickyRight && rightOffset !== undefined) {
           baseStyle.right = rightOffset;
         }
       }
 
       return baseStyle;
-    }, [col.width, col.minWidth, col.fixed, col.fixedPosition, leftOffset, rightOffset, extraStyle]);
+    }, [col.width, col.minWidth, isSticky, isStickyLeft, isStickyRight, leftOffset, rightOffset, extraStyle]);
 
     return (
       <td className={className} style={style}>

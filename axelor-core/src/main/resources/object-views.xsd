@@ -1788,23 +1788,8 @@
   </xsd:complexType>
   <xsd:complexType name="PanelField">
     <xsd:complexContent>
-      <xsd:extension base="tns:BaseField">
-        <xsd:sequence>
-          <xsd:element name="viewer" type="tns:PanelViewer" minOccurs="0">
-            <xsd:annotation>
-              <xsd:documentation>
-                Template to display the field value.
-              </xsd:documentation>
-            </xsd:annotation>
-          </xsd:element>
-          <xsd:element name="editor" type="tns:PanelEditor" minOccurs="0">
-            <xsd:annotation>
-              <xsd:documentation>
-                Custom editor for relational and calculated fields.
-              </xsd:documentation>
-            </xsd:annotation>
-          </xsd:element>
-        </xsd:sequence>
+      <xsd:extension base="tns:Field">
+        <!-- viewer and editor inherited from Field -->
       </xsd:extension>
     </xsd:complexContent>
   </xsd:complexType>
@@ -3505,6 +3490,20 @@
     <xsd:complexContent>
       <xsd:extension base="tns:BaseField">
         <xsd:sequence>
+          <xsd:element name="viewer" type="tns:PanelViewer" minOccurs="0">
+            <xsd:annotation>
+              <xsd:documentation>
+                Template to display the field value.
+              </xsd:documentation>
+            </xsd:annotation>
+          </xsd:element>
+          <xsd:element name="editor" type="tns:PanelEditor" minOccurs="0">
+            <xsd:annotation>
+              <xsd:documentation>
+                Custom editor for relational and calculated fields.
+              </xsd:documentation>
+            </xsd:annotation>
+          </xsd:element>
           <xsd:element name="grid" type="tns:NestedGridView" minOccurs="0" />
           <xsd:element name="form" type="tns:NestedFormView" minOccurs="0" />
         </xsd:sequence>

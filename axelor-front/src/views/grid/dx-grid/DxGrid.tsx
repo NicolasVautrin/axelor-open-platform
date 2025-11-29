@@ -154,7 +154,8 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
   const parentFormAtom = parentFormAtomRef.current;
 
   // Calculer editable tôt pour utilisation dans handleCellClick
-  const editable = view.editable !== false;
+  // FIX: Doit être explicitement true, pas juste "pas false"
+  const editable = view.editable === true;
 
   // Ref pour accéder à l'instance DevExtreme DataGrid
   const dataGridRef = useRef<React.ElementRef<typeof DxDataGrid>>(null);
@@ -481,20 +482,71 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
 
   // Personnaliser le menu contextuel des colonnes
   const handleContextMenuPreparing = useCallback((e: any) => {
-    if (e.target === "header" && onColumnCustomize) {
-      // Ajouter un séparateur
-      e.items.push({
-        disabled: true,
-        template: () => null,
-      });
+    // Vérifier que e.items existe (peut être undefined pour certains targets comme filterRow)
+    if (!e.items) {
+      e.items = [];
+    }
 
-      // Ajouter l'item "Personnaliser..."
-      e.items.push({
-        text: i18n.get("Customize..."),
-        onItemClick: () => {
-          onColumnCustomize({ title: i18n.get("Customize...") });
-        },
-      });
+    if (e.target === "header") {
+      const column = e.column;
+      const dataField = column?.dataField;
+      const gridInstance = e.component;
+
+      // Ne pas ajouter d'options de fixation pour les colonnes système
+      if (dataField && !dataField.startsWith('$')) {
+        // Vérifier si la colonne est déjà fixée (sticky)
+        const isFixed = column.stickyLeft || column.stickyRight;
+
+        // Ajouter un séparateur avant les options de fixation
+        e.items.push({
+          disabled: true,
+          template: () => null,
+        });
+
+        if (!isFixed) {
+          // Option "Fixer à gauche"
+          e.items.push({
+            text: i18n.get("Fix to the left"),
+            onItemClick: () => {
+              // Compter les colonnes système déjà fixées ($$select, $$edit)
+              const allColumns = gridInstance.getVisibleColumns();
+              const systemFixedCount = allColumns.filter((c: any) =>
+                c.stickyLeft && c.dataField?.startsWith('$')
+              ).length;
+
+              // Déplacer la colonne juste après les colonnes système
+              gridInstance.columnOption(dataField, 'visibleIndex', systemFixedCount);
+              gridInstance.columnOption(dataField, 'stickyLeft', true);
+              gridInstance.repaint();
+            },
+          });
+        } else {
+          // Option "Libérer"
+          e.items.push({
+            text: i18n.get("Unfix"),
+            onItemClick: () => {
+              gridInstance.columnOption(dataField, 'stickyLeft', false);
+              gridInstance.columnOption(dataField, 'stickyRight', false);
+              gridInstance.repaint();
+            },
+          });
+        }
+      }
+
+      // Ajouter l'option "Personnaliser..." si disponible
+      if (onColumnCustomize) {
+        e.items.push({
+          disabled: true,
+          template: () => null,
+        });
+
+        e.items.push({
+          text: i18n.get("Customize..."),
+          onItemClick: () => {
+            onColumnCustomize({ title: i18n.get("Customize...") });
+          },
+        });
+      }
     }
   }, [onColumnCustomize]);
 
@@ -523,8 +575,39 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
     }
   }, [getHilites, context]);
 
-  // Appliquer les hilites au niveau des cellules (field-level)
+  // Appliquer les hilites au niveau des cellules (field-level) et les styles sticky aux headers
   const handleCellPrepared = useCallback((e: any) => {
+    const column = e.column;
+
+    // Appliquer les styles sticky aux headers et filter rows pour les colonnes stickyLeft
+    if ((e.rowType === "header" || e.rowType === "filter") && column?.stickyLeft) {
+      const cellElement = e.cellElement;
+
+      // Calculer l'offset left basé sur la position de la colonne
+      // Les colonnes sticky sont positionnées dans l'ordre: $$select (0), $$edit (30), puis les colonnes user-fixed
+      const gridInstance = e.component;
+      const allColumns = gridInstance.getVisibleColumns();
+
+      // Calculer l'offset en sommant les largeurs des colonnes sticky précédentes
+      let leftOffset = 0;
+      for (const col of allColumns) {
+        if (col.dataField === column.dataField) break;
+        if (col.stickyLeft) {
+          leftOffset += col.width || 0;
+        }
+      }
+
+      // Appliquer les styles sticky
+      cellElement.style.position = 'sticky';
+      cellElement.style.left = `${leftOffset}px`;
+      cellElement.style.zIndex = '100';
+      // Utiliser une couleur de fond opaque pour éviter la transparence lors du scroll
+      // Détecter le dark mode via l'attribut data-bs-theme sur le document
+      const isDarkMode = document.documentElement.getAttribute('data-bs-theme') === 'dark';
+      cellElement.style.backgroundColor = isDarkMode ? '#1e1e2d' : '#fff';
+    }
+
+    // Appliquer les hilites aux cellules de données
     if (e.rowType === "data" && e.data && e.column.dataField) {
       const record = e.data;
       const fieldName = e.column.dataField;
@@ -619,9 +702,12 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
       return;
     }
 
-    // En mode readonly, sélectionner la ligne au lieu d'éditer
-    const contextReadonly = isLocalMode ? readonly : (!editable && readonly);
-    if (contextReadonly) {
+    // Vérifier si l'édition inline est autorisée :
+    // - Pour O2M (isLocalMode): readonly vient du formulaire parent
+    // - Pour standalone (action-view): pas d'édition inline si editable=false
+    // Note: ceci est différent de GridContext.readonly qui contrôle l'icône edit/description
+    const inlineEditDisabled = isLocalMode ? readonly : !editable;
+    if (inlineEditDisabled) {
       handleToggleSelection(e.key);
       return;
     }
@@ -970,16 +1056,15 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
   });
 
   // Calculer le contexte de la grille (readonly, etc.) comme Axelor standard grid
-  // Pour les grids OneToMany (mode local), readonly vient du formulaire parent
-  // Pour les grids standalone (action-view), readonly = !editable
-  // Formule: Si en mode local (OneToMany), utiliser readonly du parent directement
-  //          Sinon, utiliser !editable && readonly
+  // Le readonly du contexte vient TOUJOURS du prop readonly (formulaire parent ou action-view)
+  // C'est différent de `editable` qui contrôle l'édition inline
+  // - readonly=true → icône "description", formulaire en lecture seule
+  // - readonly=false → icône "edit", formulaire en mode édition
   const gridContext = useMemo(() => {
-    const contextReadonly = isLocalMode ? readonly : (!editable && readonly);
     return {
-      readonly: contextReadonly,
+      readonly: readonly,
     };
-  }, [editable, readonly, view.editable, isLocalMode]);
+  }, [readonly]);
 
   return (
     <GridContext.Provider value={gridContext}>
@@ -992,7 +1077,7 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
         showBorders={true}
         rowAlternationEnabled={true}
         hoverStateEnabled={true}
-        columnAutoWidth={false}
+        columnAutoWidth={true}
         allowColumnResizing={true}
         columnResizingMode="widget"
         wordWrapEnabled={false}
@@ -1086,8 +1171,9 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
 
         {/* Sélection gérée manuellement via notre colonne personnalisée */}
 
-        {/* Column Fixing */}
-        <ColumnFixing enabled />
+        {/* Column Fixing - Désactivé car crée des tables séparées qui cassent dataRowRender */}
+        {/* On utilise CSS sticky (stickyLeft/stickyRight) à la place via DxCell */}
+        <ColumnFixing enabled={false} />
 
         {/* Édition (si editable) */}
         {view.editable && (

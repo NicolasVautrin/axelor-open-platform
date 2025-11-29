@@ -50,8 +50,10 @@ export function getEditColumnProps({ view, onEdit }: EditColumnProps) {
     caption: "",
     width: 30,
     minWidth: 30,
-    fixed: true,
-    fixedPosition: "left" as const,
+    // Note: On utilise stickyLeft (propriété custom) au lieu de fixed (DevExtreme natif)
+    // car fixed crée des tables séparées qui cassent l'alignement avec dataRowRender
+    // DxCell applique position: sticky via CSS quand stickyLeft=true
+    stickyLeft: true,
     alignment: "center" as const,
     allowSorting: false,
     allowFiltering: false,

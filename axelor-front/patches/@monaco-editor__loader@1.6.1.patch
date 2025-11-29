@@ -1,0 +1,42 @@
+diff --git a/lib/cjs/loader/index.js b/lib/cjs/loader/index.js
+index 499029b651c85ae07c22fcdcb5d853f125736d08..a5ed2f481b912406ce798436fcda0a6610ddb310 100644
+--- a/lib/cjs/loader/index.js
++++ b/lib/cjs/loader/index.js
+@@ -129,8 +129,7 @@ function configureLoader() {
+   });
+   var require = window.require;
+   require.config(state.config);
+-  require(['vs/editor/editor.main'], function (_ref4) {
+-    var monaco = _ref4.m;
++  require(['vs/editor/editor.main'], function (monaco) {
+     storeMonacoInstance(monaco);
+     state.resolve(monaco);
+   }, function (error) {
+diff --git a/lib/es/loader/index.js b/lib/es/loader/index.js
+index 52111dfc4b2ae2cd73dbf9f89696d09ce9b39896..85a38f5c42ae9dc8786479752597ca4012bf65fe 100644
+--- a/lib/es/loader/index.js
++++ b/lib/es/loader/index.js
+@@ -125,8 +125,7 @@ function configureLoader() {
+   });
+   var require = window.require;
+   require.config(state.config);
+-  require(['vs/editor/editor.main'], function (_ref4) {
+-    var monaco = _ref4.m;
++  require(['vs/editor/editor.main'], function (monaco) {
+     storeMonacoInstance(monaco);
+     state.resolve(monaco);
+   }, function (error) {
+diff --git a/lib/umd/monaco-loader.js b/lib/umd/monaco-loader.js
+index 7a80fe2f51d69241fb40a6da9daaf8e194a6a358..6512a9b18149dee621b3eea7d3f735709c46fcd7 100644
+--- a/lib/umd/monaco-loader.js
++++ b/lib/umd/monaco-loader.js
+@@ -497,8 +497,7 @@
+     });
+     var require = window.require;
+     require.config(state.config);
+-    require(['vs/editor/editor.main'], function (_ref4) {
+-      var monaco = _ref4.m;
++    require(['vs/editor/editor.main'], function (monaco) {
+       storeMonacoInstance(monaco);
+       state.resolve(monaco);
+     }, function (error) {

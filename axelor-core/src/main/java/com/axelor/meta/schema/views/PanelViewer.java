@@ -44,7 +44,7 @@ import org.eclipse.persistence.oxm.annotations.XmlCDATA;
 @JsonInclude(Include.NON_NULL)
 public class PanelViewer {
 
-  transient PanelField forField;
+  transient Field forField;
 
   @XmlAttribute private String depends;
 

@@ -188,6 +188,10 @@ public class Field extends SimpleWidget {
   @XmlAttribute(name = "x-dirty")
   private Boolean canDirty;
 
+  @XmlElement private PanelViewer viewer;
+
+  @XmlElement private PanelEditor editor;
+
   @XmlElement(name = "hilite")
   private List<Hilite> hilites;
 
@@ -757,5 +761,28 @@ public class Field extends SimpleWidget {
             ? MetaStore.findJsonFields(getModel(), getName())
             : MetaStore.findJsonFields(jsonModel);
     return fields == null ? null : fields.values();
+  }
+
+  public PanelViewer getViewer() {
+    if (viewer != null) {
+      viewer.forField = this;
+    }
+    return viewer;
+  }
+
+  public void setViewer(PanelViewer viewer) {
+    this.viewer = viewer;
+  }
+
+  public PanelEditor getEditor() {
+    if (editor != null) {
+      editor.forField = this;
+      editor.setModel(StringUtils.isBlank(getTarget()) ? getModel() : getTarget());
+    }
+    return editor;
+  }
+
+  public void setEditor(PanelEditor editor) {
+    this.editor = editor;
   }
 }

@@ -21,6 +21,9 @@ package com.axelor.gradle.tasks;
 import com.axelor.gradle.AxelorUtils;
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import org.gradle.api.DefaultTask;
@@ -92,5 +95,57 @@ public class CopyWebapp extends DefaultTask {
                 copySpec.setDuplicatesStrategy(DuplicatesStrategy.EXCLUDE);
               });
         });
+
+    // Merge index.html fragments
+    mergeIndexHtmlFragments();
+  }
+
+  /**
+   * Merges HTML fragments into index.html.
+   *
+   * <p>Looks for fragment files in src/main/webapp/:
+   * <ul>
+   *   <li>index-head.html - injected at &lt;!-- @AXELOR:HEAD@ --&gt;</li>
+   *   <li>index-body-start.html - injected at &lt;!-- @AXELOR:BODY_START@ --&gt;</li>
+   *   <li>index-body-end.html - injected at &lt;!-- @AXELOR:BODY_END@ --&gt;</li>
+   * </ul>
+   */
+  private void mergeIndexHtmlFragments() throws IOException {
+    Project project = getProject();
+    Path indexHtml = project.getLayout().getBuildDirectory()
+        .dir("webapp").get().getAsFile().toPath().resolve("index.html");
+
+    if (!Files.exists(indexHtml)) {
+      return;
+    }
+
+    String content = Files.readString(indexHtml, StandardCharsets.UTF_8);
+    boolean modified = false;
+
+    // Process each fragment type
+    String[][] fragments = {
+        {"index-head.html", "<!-- @AXELOR:HEAD@ -->"},
+        {"index-body-start.html", "<!-- @AXELOR:BODY_START@ -->"},
+        {"index-body-end.html", "<!-- @AXELOR:BODY_END@ -->"}
+    };
+
+    for (String[] fragment : fragments) {
+      String fragmentName = fragment[0];
+      String placeholder = fragment[1];
+
+      Path fragmentPath = project.file("src/main/webapp/" + fragmentName).toPath();
+      if (Files.exists(fragmentPath)) {
+        String fragmentContent = Files.readString(fragmentPath, StandardCharsets.UTF_8);
+        if (content.contains(placeholder)) {
+          content = content.replace(placeholder, fragmentContent + "\n    " + placeholder);
+          modified = true;
+          getLogger().lifecycle("Injected {} into index.html", fragmentName);
+        }
+      }
+    }
+
+    if (modified) {
+      Files.writeString(indexHtml, content, StandardCharsets.UTF_8);
+    }
   }
 }

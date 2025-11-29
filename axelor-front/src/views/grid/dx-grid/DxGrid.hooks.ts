@@ -93,8 +93,9 @@ export function useDxColumns({ view, fields, groupByFields, gridStateColumns = [
         }
 
         // Pour les colonnes normales, utiliser la largeur sauvegardée en priorité
-        const columnWidth = savedColumnState?.width ? parseInt(String(savedColumnState.width)) : (field.width ? parseInt(String(field.width)) : undefined);
+        // Si pas de largeur définie, utiliser minWidth comme largeur par défaut (évite la compression des colonnes)
         const columnMinWidth = 100; // COLUMN_MIN_WIDTH par défaut comme Axelor
+        const columnWidth = savedColumnState?.width ? parseInt(String(savedColumnState.width)) : (field.width ? parseInt(String(field.width)) : columnMinWidth);
 
         const allowEditing = !field.readonly && !fieldMeta?.readonly;
 
@@ -190,7 +191,15 @@ export function useTriggerSearch({ dataStore, fieldsToFetch }: UseTriggerSearchP
       }
 
       // Appliquer le filtre
-      if (options.filter) {
+      if (options.filter === null) {
+        // Effacer explicitement le filtre (réinitialisation)
+        // Le filtre est stocké dans dataStore.options.filter et persiste entre les recherches
+        // On doit effacer à la fois searchOptions.filter ET dataStore.options.filter
+        searchOptions.filter = undefined;
+        if (dataStore.options?.filter) {
+          dataStore.options.filter = undefined;
+        }
+      } else if (options.filter) {
         const axelorCriteria = convertDxFilterToAxelor(options.filter);
         if (axelorCriteria) {
           searchOptions.filter = {
@@ -221,22 +230,6 @@ interface UseHandleOptionChangedParams {
  */
 export function useHandleOptionChanged({ setHasGrouping, triggerSearch, setGridState }: UseHandleOptionChangedParams) {
   return useCallback((e: any) => {
-    // Logger TOUS les événements onOptionChanged pour debugging
-    // dxLog("[useHandleOptionChanged] Event received:", {
-    //   name: e.name,
-    //   fullName: e.fullName,
-    //   value: e.value,
-    //   previousValue: e.previousValue,
-    // });
-
-    // Logger les changeTypes pour les événements columns (pour comprendre les reloads)
-    // if (e.name === "columns" && e.component) {
-    //   const columnsController = e.component.getController?.("columns");
-    //   if (columnsController && columnsController._changeTypes) {
-    //     dxLog("[useHandleOptionChanged] ⚠️ COLUMNS changeTypes:", columnsController._changeTypes);
-    //   }
-    // }
-
     // Détecter les changements de groupement
     if (e.name === "columns" && e.fullName?.includes("groupIndex")) {
       // Vérifier s'il y a des colonnes groupées
@@ -263,6 +256,14 @@ export function useHandleOptionChanged({ setHasGrouping, triggerSearch, setGridS
       } else {
         // Aucun tri : effacer le tri en passant un tableau vide
         triggerSearch({ sortBy: [] });
+      }
+    }
+
+    // Détecter les changements de filtre (y compris réinitialisation via "Réinitialiser")
+    if (e.name === "columns" && e.fullName?.includes("filterValue")) {
+      // Si le filtre est réinitialisé (value = null), forcer un rechargement sans filtre
+      if (e.value === null || e.value === undefined || e.value === "") {
+        triggerSearch({ filter: null });
       }
     }
 

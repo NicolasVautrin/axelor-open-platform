@@ -45,6 +45,14 @@
 
 /* ===== CELLULES ===== */
 
+/* Contraindre les images (photos, avatars) dans les cellules */
+.dx-datagrid .dx-data-row td img {
+  max-height: 24px;
+  max-width: 24px;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
 /* Cellules en mode édition - ajuster le padding pour les widgets Axelor */
 .dx-datagrid .dx-editor-cell {
   padding: 4px 8px !important;
@@ -195,4 +203,277 @@
 /* Cibler aussi les td sans classe dx-cell (colonnes système) */
 .dx-datagrid-rowsview .dx-row-focused.dx-data-row td {
   background-color: #fff !important;
+}
+
+/* ===== COLONNES STICKY - FIX LIGNES ALTERNÉES ===== */
+
+/*
+ * DevExtreme utilise 2 tables superposées :
+ * - Table 1 : données principales
+ * - Table 2 (.dx-pointer-events-none) : colonnes sticky (select/edit)
+ *
+ * La table 2 a une cellule "spacer" qui peut masquer le contenu de la table 1
+ * sur les lignes alternées. On force la transparence de cette cellule.
+ */
+.dx-datagrid-rowsview .dx-pointer-events-none .dx-row-alt td:not(.dx-cell) {
+  background-color: transparent !important;
+}
+
+/* Fix aussi pour la table principale - s'assurer que les cellules vides n'ont pas de fond opaque */
+.dx-datagrid-rowsview .dx-pointer-events-none td {
+  background-color: transparent !important;
+}
+
+/* ===== DARK MODE SUPPORT ===== */
+
+/*
+ * Override les styles DevExtreme Light pour supporter le dark mode Bootstrap.
+ * Activé quand [data-bs-theme="dark"] est présent sur le document.
+ */
+
+/* Fond de la grille */
+[data-bs-theme="dark"] .dx-datagrid {
+  background-color: #1e1e2d !important;
+  color: #e0e0e0 !important;
+}
+
+/* Headers */
+[data-bs-theme="dark"] .dx-datagrid-headers {
+  background-color: #1e1e2d !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+[data-bs-theme="dark"] .dx-datagrid-headers .dx-datagrid-table td[role="columnheader"] {
+  color: #a0a0c0 !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+[data-bs-theme="dark"] .dx-datagrid-headers .dx-header-row td {
+  color: #a0a0c0 !important;
+}
+
+/* Zone des données */
+[data-bs-theme="dark"] .dx-datagrid-rowsview {
+  background-color: #1e1e2d !important;
+}
+
+/* Lignes de données */
+[data-bs-theme="dark"] .dx-datagrid-rowsview .dx-data-row {
+  background-color: #1e1e2d !important;
+}
+
+[data-bs-theme="dark"] .dx-datagrid-rowsview .dx-data-row td {
+  background-color: #1e1e2d !important;
+  color: #e0e0e0 !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Lignes alternées */
+[data-bs-theme="dark"] .dx-datagrid-rowsview .dx-row-alt td {
+  background-color: #252536 !important;
+}
+
+/* Ligne focused */
+[data-bs-theme="dark"] .dx-datagrid-rowsview .dx-row-focused.dx-data-row td {
+  background-color: #2a2a3d !important;
+  color: #e0e0e0 !important;
+}
+
+[data-bs-theme="dark"] .dx-datagrid-rowsview .dx-row-focused.dx-data-row td.dx-cell {
+  background-color: #2a2a3d !important;
+  color: #e0e0e0 !important;
+}
+
+/* Bordures */
+[data-bs-theme="dark"] .dx-datagrid-borders > .dx-datagrid-rowsview,
+[data-bs-theme="dark"] .dx-datagrid-borders > .dx-datagrid-headers {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+[data-bs-theme="dark"] .dx-datagrid .dx-row-lines > td {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Scrollbar */
+[data-bs-theme="dark"] .dx-datagrid .dx-scrollable-content {
+  background-color: #1e1e2d !important;
+}
+
+/* Pager/Footer */
+[data-bs-theme="dark"] .dx-datagrid-pager {
+  background-color: #1e1e2d !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* Cellules en mode édition */
+[data-bs-theme="dark"] .dx-datagrid .dx-editor-cell {
+  background-color: #252536 !important;
+}
+
+/* Hover sur les lignes */
+[data-bs-theme="dark"] .dx-datagrid-rowsview .dx-data-row:hover td {
+  background-color: #2d2d42 !important;
+}
+
+/* Selection */
+[data-bs-theme="dark"] .dx-datagrid-rowsview .dx-selection td {
+  background-color: #3a3a5a !important;
+}
+
+/* Filtres dans les headers */
+[data-bs-theme="dark"] .dx-datagrid-headers .dx-texteditor,
+[data-bs-theme="dark"] .dx-datagrid-headers .dx-textbox {
+  background-color: #252536 !important;
+}
+
+[data-bs-theme="dark"] .dx-datagrid-headers .dx-texteditor-input {
+  background-color: #252536 !important;
+  color: #e0e0e0 !important;
+}
+
+[data-bs-theme="dark"] .dx-datagrid-headers .dx-texteditor-container {
+  background-color: #252536 !important;
+}
+
+/* Menus contextuels et dropdowns */
+[data-bs-theme="dark"] .dx-datagrid .dx-submenu,
+[data-bs-theme="dark"] .dx-datagrid .dx-context-menu,
+[data-bs-theme="dark"] .dx-datagrid .dx-overlay-content {
+  background-color: #1e1e2d !important;
+}
+
+[data-bs-theme="dark"] .dx-datagrid .dx-menu-item {
+  background-color: #1e1e2d !important;
+  color: #e0e0e0 !important;
+}
+
+[data-bs-theme="dark"] .dx-datagrid .dx-menu-item:hover,
+[data-bs-theme="dark"] .dx-datagrid .dx-menu-item-selected {
+  background-color: #2d2d42 !important;
+}
+
+/*
+ * Overlays DevExtreme globaux (popups de filtres, listes déroulantes)
+ * Ces éléments sont rendus au niveau du body, pas dans le datagrid
+ */
+[data-bs-theme="dark"] .dx-overlay-content.dx-popup-normal,
+[data-bs-theme="dark"] .dx-overlay-content.dx-dropdownlist-popup-wrapper,
+[data-bs-theme="dark"] .dx-list,
+[data-bs-theme="dark"] .dx-scrollview-content {
+  background-color: #1e1e2d !important;
+  color: #e0e0e0 !important;
+}
+
+/* Items des listes déroulantes DevExtreme */
+[data-bs-theme="dark"] .dx-list-item {
+  background-color: #1e1e2d !important;
+  color: #e0e0e0 !important;
+}
+
+[data-bs-theme="dark"] .dx-list-item:hover,
+[data-bs-theme="dark"] .dx-list-item.dx-state-hover {
+  background-color: #2d2d42 !important;
+}
+
+[data-bs-theme="dark"] .dx-list-item.dx-state-focused,
+[data-bs-theme="dark"] .dx-list-item.dx-list-item-selected {
+  background-color: #3d3d52 !important;
+}
+
+/* Checkboxes dans les listes */
+[data-bs-theme="dark"] .dx-checkbox-icon {
+  background-color: #2d2d42 !important;
+  border-color: #555 !important;
+}
+
+/* Boutons dans les popups */
+[data-bs-theme="dark"] .dx-button-normal {
+  background-color: #2d2d42 !important;
+  color: #e0e0e0 !important;
+  border-color: #555 !important;
+}
+
+[data-bs-theme="dark"] .dx-button-normal:hover {
+  background-color: #3d3d52 !important;
+}
+
+/* Filter row */
+[data-bs-theme="dark"] .dx-datagrid-filter-row {
+  background-color: #1e1e2d !important;
+}
+
+[data-bs-theme="dark"] .dx-datagrid-filter-row td {
+  background-color: #1e1e2d !important;
+}
+
+/* ===== SUPPRESSION DES SEPARATEURS DE COLONNES ===== */
+
+/* Supprimer les bordures verticales entre les colonnes (headers et data) */
+.dx-datagrid .dx-column-lines > td {
+  border-left: none !important;
+  border-right: none !important;
+}
+
+/* Supprimer les bordures verticales dans les headers */
+.dx-datagrid-headers td {
+  border-left: none !important;
+  border-right: none !important;
+}
+
+/* Garder uniquement la bordure horizontale sous les headers */
+.dx-datagrid-headers {
+  border-bottom: 1px solid rgba(128, 128, 128, 0.2) !important;
+}
+
+/* Supprimer les bordures verticales dans la zone des données */
+.dx-datagrid-rowsview td {
+  border-left: none !important;
+  border-right: none !important;
+}
+
+/* Garder les bordures horizontales entre les lignes (subtiles) */
+.dx-datagrid .dx-row-lines > td {
+  border-bottom: 1px solid rgba(128, 128, 128, 0.1) !important;
+}
+
+/* ===== COLONNES STICKY (HEADERS + FILTER ROW) ===== */
+
+/*
+ * Les colonnes système ($$select et $$edit) doivent rester visibles
+ * lors du scroll horizontal. On applique position: sticky via CSS
+ * car les headers sont rendus nativement par DevExtreme.
+ *
+ * Note: Les cellules de données utilisent DxCell.tsx qui applique
+ * les styles sticky dynamiquement.
+ */
+
+/* Colonne 1 ($$select) - sticky à left: 0 */
+.dx-datagrid-headers td[aria-colindex="1"],
+.dx-datagrid-filter-row td[aria-colindex="1"] {
+  position: sticky !important;
+  left: 0 !important;
+  z-index: 100 !important;
+  background-color: #fff !important; /* Fond opaque pour éviter la transparence */
+}
+
+/* Colonne 2 ($$edit) - sticky à left: 30px (après la colonne select) */
+.dx-datagrid-headers td[aria-colindex="2"],
+.dx-datagrid-filter-row td[aria-colindex="2"] {
+  position: sticky !important;
+  left: 30px !important;
+  z-index: 100 !important;
+  background-color: #fff !important; /* Fond opaque pour éviter la transparence */
+}
+
+/* Dark mode: assurer que le fond est opaque pour les colonnes sticky */
+[data-bs-theme="dark"] .dx-datagrid-headers td[aria-colindex="1"],
+[data-bs-theme="dark"] .dx-datagrid-headers td[aria-colindex="2"],
+[data-bs-theme="dark"] .dx-datagrid-filter-row td[aria-colindex="1"],
+[data-bs-theme="dark"] .dx-datagrid-filter-row td[aria-colindex="2"] {
+  background-color: #1e1e2d !important;
+}
+
+/* Dark mode: fond opaque pour les cellules de données sticky (via DxCell) */
+[data-bs-theme="dark"] .dx-datagrid .dx-col-fixed {
+  background-color: #1e1e2d !important;
 }

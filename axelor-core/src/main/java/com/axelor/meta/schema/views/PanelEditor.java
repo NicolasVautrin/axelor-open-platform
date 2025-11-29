@@ -44,7 +44,7 @@ import javax.xml.bind.annotation.XmlType;
 @JsonTypeName("editor")
 public class PanelEditor extends AbstractPanel {
 
-  transient PanelField forField;
+  transient Field forField;
   transient List<Object> targetFields;
 
   @XmlTransient @JsonIgnore private boolean fromEditorProcessed;

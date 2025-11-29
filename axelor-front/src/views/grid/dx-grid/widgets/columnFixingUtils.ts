@@ -22,8 +22,9 @@ export function calculateFixedOffsets(columns: any[]): {
   const rightOffsets = new Map<string, number>();
 
   // Colonnes fixées à gauche (de gauche à droite)
+  // Supporte à la fois DevExtreme natif (fixed + fixedPosition) et custom (stickyLeft)
   const fixedLeftColumns = columns.filter(
-    (c) => c.fixed && c.fixedPosition === "left"
+    (c) => c.stickyLeft || (c.fixed && c.fixedPosition === "left")
   );
   let currentLeftOffset = 0;
   fixedLeftColumns.forEach((col) => {

@@ -16,7 +16,7 @@
     "svgo": "svgo --multipass src/assets/*.svg"
   },
   "dependencies": {
-    "@axelor/ui": "^0.4.5",
+    "@axelor/ui": "0.4.5",
     "@babel/standalone": "^7.26.4",
     "@fullcalendar/core": "^6.1.15",
     "@fullcalendar/daygrid": "^6.1.15",
@@ -93,7 +93,8 @@
   "pnpm": {
     "patchedDependencies": {
       "bootstrap-sass@2.3.2": "patches/bootstrap-sass@2.3.2.patch",
-      "font-awesome@4.7.0": "patches/font-awesome@4.7.0.patch"
+      "font-awesome@4.7.0": "patches/font-awesome@4.7.0.patch",
+      "@monaco-editor/loader@1.6.1": "patches/@monaco-editor__loader@1.6.1.patch"
     },
     "peerDependencyRules": {
       "ignoreMissing": [
