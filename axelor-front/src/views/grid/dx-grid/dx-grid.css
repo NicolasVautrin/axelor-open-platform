@@ -519,7 +519,16 @@
   border-bottom: 1px solid rgba(128, 128, 128, 0.2) !important;
 }
 
+/* Note: table-layout doit rester "fixed" pour l'alignement headers/données */
+/* Les largeurs des colonnes sont gérées via handleContentReady dans DxGrid.tsx */
+
 /* Colonne expand (group-space) - unifier la largeur à 30px partout */
+/* Le <col> n'a pas de classe, on cible par position (premier col quand grouping actif) */
+.dx-datagrid-headers colgroup col:first-child,
+.dx-datagrid-rowsview colgroup col:first-child {
+  width: 30px !important;
+}
+
 .dx-datagrid td.dx-command-expand,
 .dx-datagrid td.dx-datagrid-group-space {
   width: 30px !important;
@@ -596,4 +605,54 @@
 
 [data-bs-theme="dark"] .dx-group-context-menu-item:hover {
   background-color: #2d2d42;
+}
+
+/* ===== FILTRES SELECTBOX/COMBOBOX - VISIBILITÉ ===== */
+
+/*
+ * Améliorer la visibilité des sélecteurs de filtre (combobox) dans la filter row.
+ * Par défaut, la flèche dropdown est quasi invisible en dark mode sans focus.
+ */
+
+/*
+ * Uniformiser le style du selectbox avec les textbox de filtre (loupe).
+ * L'icône dropdown doit avoir la même visibilité que l'icône loupe.
+ */
+
+/* Même style que l'icône loupe - couleur, opacité et fond identiques */
+.dx-datagrid-filter-row .dx-dropdowneditor-button {
+  opacity: 1 !important; /* Comme la loupe */
+}
+
+/* Dark mode - même fond que le menuItem de la loupe (#1e1e2d = rgb(30, 30, 45)) */
+[data-bs-theme="dark"] .dx-datagrid-filter-row .dx-dropdowneditor-button {
+  background-color: rgb(30, 30, 45) !important;
+}
+
+/* Icône dropdown - même couleur que l'icône loupe (#898989) */
+.dx-datagrid-filter-row .dx-dropdowneditor-icon,
+.dx-datagrid-filter-row .dx-dropdowneditor-icon::before {
+  color: #898989 !important;
+  font-size: 22px !important; /* Plus grand pour meilleure visibilité */
+}
+
+/* Dark mode - même couleur que la loupe */
+[data-bs-theme="dark"] .dx-datagrid-filter-row .dx-dropdowneditor-icon,
+[data-bs-theme="dark"] .dx-datagrid-filter-row .dx-dropdowneditor-icon::before {
+  color: #898989 !important;
+}
+
+/* Hover - légèrement plus clair */
+.dx-datagrid-filter-row .dx-selectbox:hover .dx-dropdowneditor-icon,
+.dx-datagrid-filter-row .dx-selectbox:hover .dx-dropdowneditor-icon::before,
+.dx-datagrid-filter-row .dx-selectbox.dx-state-focused .dx-dropdowneditor-icon,
+.dx-datagrid-filter-row .dx-selectbox.dx-state-focused .dx-dropdowneditor-icon::before {
+  color: #666 !important;
+}
+
+[data-bs-theme="dark"] .dx-datagrid-filter-row .dx-selectbox:hover .dx-dropdowneditor-icon,
+[data-bs-theme="dark"] .dx-datagrid-filter-row .dx-selectbox:hover .dx-dropdowneditor-icon::before,
+[data-bs-theme="dark"] .dx-datagrid-filter-row .dx-selectbox.dx-state-focused .dx-dropdowneditor-icon,
+[data-bs-theme="dark"] .dx-datagrid-filter-row .dx-selectbox.dx-state-focused .dx-dropdowneditor-icon::before {
+  color: #bbb !important;
 }

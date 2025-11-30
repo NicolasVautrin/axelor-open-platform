@@ -28,7 +28,7 @@ import frMessages from "devextreme/localization/messages/fr.json";
 import { ViewProps } from "@/views/types";
 import { SearchOptions } from "@/services/client/data";
 import { GridView, Field } from "@/services/client/meta.types";
-import { dxLog } from "@/utils/dev-tools";
+// dxLog removed - using console.log instead
 import { getStandardColumnProps } from "./widgets/StandardColumn";
 import { getEditColumnProps } from "./widgets/EditColumn";
 import { getSelectColumnProps, SelectAllHeader } from "./widgets/SelectColumn";
@@ -63,7 +63,7 @@ import { createLocalDxDataSource } from "./createLocalDxDataSource";
 import { convertDxFilterToAxelor } from "./dx-filter-converter";
 import { enableDxGridDebug } from "./dx-grid-debug";
 import { useDxRow } from "./widgets/DxRow";
-import { useGridState } from "../builder/utils";
+import { useGridState, parseOrderBy, getSortBy } from "../builder/utils";
 import { useCustomizePopup } from "../builder/customize";
 
 // Import des styles DevExtreme
@@ -187,6 +187,22 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
   // Utilisé pour décider si on appelle onSave (→ onNew trigger) ou onUpdate (→ onChange trigger)
   const isNewRowRef = useRef<boolean>(false);
 
+  // ✅ FIX TRI SERVEUR: Ref pour stocker le sortBy courant
+  // Quand remoteOperations.grouping: false, DevExtreme ne passe pas le sort dans loadOptions
+  // Cette ref est mise à jour par handleOptionChanged et lue par CustomStore.load()
+  // ✅ Initialisation avec view.orderBy pour appliquer le tri défini dans la vue XML
+  const initialSortBy = useMemo(() => getSortBy(parseOrderBy(view.orderBy)), [view.orderBy]);
+  const currentSortByRef = useRef<string[] | undefined>(initialSortBy);
+
+  // ✅ FIX: useRef ne met pas à jour après le premier render
+  useEffect(() => {
+    console.log("[DxGrid] view.orderBy:", view.orderBy, "-> initialSortBy:", initialSortBy);
+    if (initialSortBy && initialSortBy.length > 0 && !currentSortByRef.current) {
+      console.log("[DxGrid] Syncing currentSortByRef with initialSortBy:", initialSortBy);
+      currentSortByRef.current = initialSortBy;
+    }
+  }, [initialSortBy]);
+
   // Callback pour que DxEditRow notifie son formAtom ET son store dédié
   // ✅ FIX DevExtreme v22: Reçoit maintenant { formAtom, store } au lieu de juste formAtom
   const onEditRowFormAtomReady = useCallback(({ formAtom, store }: { formAtom: any, store: any }) => {
@@ -203,12 +219,12 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
 
   // FormAtom pour l'exécuteur d'actions
   const formAtom = useMemo(
-    () =>
-      createFormAtom({
-        meta: meta as any,
-        record: {},
-      }),
-    [meta],
+      () =>
+          createFormAtom({
+            meta: meta as any,
+            record: {},
+          }),
+      [meta],
   );
 
   // Context pour l'exécuteur d'actions
@@ -318,39 +334,39 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
   // Créer un atom dérivé qui nettoie automatiquement les largeurs invalides (NaN, Infinity)
   // Cet atom sera utilisé par le dialog de personnalisation pour éviter d'envoyer des NaN au serveur
   const cleanedGridStateAtom = useMemo(
-    () =>
-      atom((get) => {
-        const state = get(gridStateAtom);
-        if (!state.columns || state.columns.length === 0) {
-          return state;
-        }
-
-        // Nettoyer les largeurs invalides
-        const cleanedColumns = state.columns.map((col: any) => {
-          if (col.width !== undefined) {
-            const widthStr = String(col.width);
-            const parsedWidth = parseInt(widthStr);
-
-            if (
-              widthStr === 'NaN' ||
-              widthStr === 'Infinity' ||
-              widthStr === '-Infinity' ||
-              isNaN(parsedWidth) ||
-              !isFinite(parsedWidth)
-            ) {
-              const { width, ...rest } = col;
-              return rest;
+      () =>
+          atom((get) => {
+            const state = get(gridStateAtom);
+            if (!state.columns || state.columns.length === 0) {
+              return state;
             }
-          }
-          return col;
-        });
 
-        return {
-          ...state,
-          columns: cleanedColumns,
-        };
-      }),
-    [gridStateAtom],
+            // Nettoyer les largeurs invalides
+            const cleanedColumns = state.columns.map((col: any) => {
+              if (col.width !== undefined) {
+                const widthStr = String(col.width);
+                const parsedWidth = parseInt(widthStr);
+
+                if (
+                    widthStr === 'NaN' ||
+                    widthStr === 'Infinity' ||
+                    widthStr === '-Infinity' ||
+                    isNaN(parsedWidth) ||
+                    !isFinite(parsedWidth)
+                ) {
+                  const { width, ...rest } = col;
+                  return rest;
+                }
+              }
+              return col;
+            });
+
+            return {
+              ...state,
+              columns: cleanedColumns,
+            };
+          }),
+      [gridStateAtom],
   );
 
   // Column Chooser Axelor - utilise l'atom nettoyé
@@ -364,29 +380,29 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
     const fieldNames: string[] = [];
 
     (view.items || [])
-      .filter((item): item is Field => "name" in item && item.name !== undefined)
-      .forEach((field) => {
-        // Pour les champs pointés (ex: "user.name"), prendre la partie avant le point pour les métadonnées
-        const fieldName = field.name.includes('.') ? field.name.split('.')[0] : field.name;
-        const fieldMeta = fields[fieldName];
+        .filter((item): item is Field => "name" in item && item.name !== undefined)
+        .forEach((field) => {
+          // Pour les champs pointés (ex: "user.name"), prendre la partie avant le point pour les métadonnées
+          const fieldName = field.name.includes('.') ? field.name.split('.')[0] : field.name;
+          const fieldMeta = fields[fieldName];
 
-        // Toujours ajouter le champ lui-même (qu'il soit pointé ou non)
-        fieldNames.push(field.name);
+          // Toujours ajouter le champ lui-même (qu'il soit pointé ou non)
+          fieldNames.push(field.name);
 
-        // Pour les M2O non-pointés : ajouter field.targetName
-        const isM2O =
-          fieldMeta?.type === "MANY_TO_ONE" ||
-          fieldMeta?.type === "ONE_TO_ONE";
+          // Pour les M2O non-pointés : ajouter field.targetName
+          const isM2O =
+              fieldMeta?.type === "MANY_TO_ONE" ||
+              fieldMeta?.type === "ONE_TO_ONE";
 
-        if (isM2O && !field.name.includes('.') && fieldMeta?.targetName && fieldMeta.targetName !== "id") {
-          fieldNames.push(`${field.name}.${fieldMeta.targetName}`);
-        }
+          if (isM2O && !field.name.includes('.') && fieldMeta?.targetName && fieldMeta.targetName !== "id") {
+            fieldNames.push(`${field.name}.${fieldMeta.targetName}`);
+          }
 
-        // Pour les M2O avec colorField
-        if (isM2O && !field.name.includes('.') && (fieldMeta as any)?.colorField) {
-          fieldNames.push(`${field.name}.${(fieldMeta as any).colorField}`);
-        }
-      });
+          // Pour les M2O avec colorField
+          if (isM2O && !field.name.includes('.') && (fieldMeta as any)?.colorField) {
+            fieldNames.push(`${field.name}.${(fieldMeta as any).colorField}`);
+          }
+        });
 
     return fieldNames;
   }, [view.items, view.hilites, fields]);
@@ -423,6 +439,7 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
     fields,
     groupByFields,
     gridStateColumns: gridState.columns,
+    orderBy: view.orderBy, // ✅ FIX TRI: Passer orderBy pour configurer sortOrder/sortIndex sur les colonnes
   });
 
   // Créer le DataSource DevExtreme (mode distant ou local)
@@ -437,25 +454,26 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
 
     if (isLocalMode) {
       return createLocalDxDataSource(
-        localRecords || [],
-        {
-          onUpdate: localOnUpdate,
-          onSave: localOnSave,
-          onDelete: localOnDelete,
-        },
-        selectionSync,
-        editingRowFormAtomRef,  // ✅ Passer la ref pour lire les valeurs du formAtom
-        editingRowStoreRef      // ✅ FIX DevExtreme v22: Passer le store dédié
+          localRecords || [],
+          {
+            onUpdate: localOnUpdate,
+            onSave: localOnSave,
+            onDelete: localOnDelete,
+          },
+          selectionSync,
+          editingRowFormAtomRef,  // ✅ Passer la ref pour lire les valeurs du formAtom
+          editingRowStoreRef      // ✅ FIX DevExtreme v22: Passer le store dédié
       );
     } else {
       // ✅ FIX: Passer les refs formAtom pour que insert/update puissent lire les vraies données
       // Car dataRowRender bypasse l'état interne de DevExtreme, les values sont vides
       return createDxDataSource(
-        dataStore,
-        fieldsToFetch,
-        selectionSync,
-        editingRowFormAtomRef,  // ✅ Ref vers le formAtom de la ligne en édition
-        editingRowStoreRef      // ✅ Store Jotai dédié pour éviter les problèmes de contexte
+          dataStore,
+          fieldsToFetch,
+          selectionSync,
+          editingRowFormAtomRef,  // ✅ Ref vers le formAtom de la ligne en édition
+          editingRowStoreRef,     // ✅ Store Jotai dédié pour éviter les problèmes de contexte
+          currentSortByRef        // ✅ Ref pour le tri courant (géré par handleOptionChanged)
       );
     }
   }, [isLocalMode, localRecords, localOnUpdate, localOnSave, localOnDelete, dataStore, fieldsToFetch, setState]);
@@ -485,8 +503,58 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
   // Fonction pour déclencher une recherche avec tri/filtre
   const triggerSearch = useTriggerSearch({ dataStore, fieldsToFetch });
 
+  // ✅ FIX COLUMN WIDTH SYNC: Synchroniser les largeurs headers→rowsview
+  // Utilisé par handleContentReady et handleOptionChanged (lors du resize)
+  const syncColumnWidths = useCallback((gridInstance: any) => {
+    const container = gridInstance?.element();
+    if (!container) return;
+
+    const headersTable = container.querySelector('.dx-datagrid-headers .dx-datagrid-content > table') as HTMLTableElement;
+    const rowsviewTable = container.querySelector('.dx-datagrid-rowsview .dx-datagrid-content > table') as HTMLTableElement;
+
+    if (!headersTable || !rowsviewTable) return;
+
+    const headersCols = Array.from(headersTable.querySelectorAll('colgroup col')) as HTMLElement[];
+    const rowsviewCols = Array.from(rowsviewTable.querySelectorAll('colgroup col')) as HTMLElement[];
+
+    if (headersCols.length === 0 || rowsviewCols.length !== headersCols.length) return;
+
+    // Récupérer les colonnes via l'API DevExtreme pour identifier système vs données
+    const visibleColumns = gridInstance.getVisibleColumns();
+
+    // Synchroniser chaque colonne
+    visibleColumns.forEach((col: any, index: number) => {
+      if (index >= headersCols.length) return;
+
+      const headerCol = headersCols[index];
+      const rowsviewCol = rowsviewCols[index];
+
+      const isSystem = col.command || col.type === 'groupExpand' ||
+          (col.dataField && col.dataField.startsWith('$$'));
+
+      if (isSystem) {
+        // Colonnes système : forcer à 30px
+        headerCol.style.width = '30px';
+        rowsviewCol.style.width = '30px';
+      } else {
+        // Colonnes de données : copier la largeur computed du header vers rowsview
+        const computedWidth = headerCol.offsetWidth || parseInt(headerCol.style.width) || 100;
+        rowsviewCol.style.width = `${computedWidth}px`;
+      }
+    });
+  }, []);
+
   // Intercepter les changements de tri et de groupement
-  const handleOptionChanged = useHandleOptionChanged({ setHasGrouping, triggerSearch, setGridState });
+  // ✅ FIX TRI SERVEUR: On passe currentSortByRef et dxDataSource pour que le tri soit géré
+  // via la ref (mise à jour ici) + reload du dataSource (au lieu de triggerSearch qui causait double requête)
+  const handleOptionChanged = useHandleOptionChanged({
+    setHasGrouping,
+    triggerSearch,  // Gardé pour les filtres uniquement
+    setGridState,
+    currentSortByRef,
+    dxDataSource,
+    onSyncColumnWidths: hasGrouping ? syncColumnWidths : undefined  // Seulement si grouping actif
+  });
 
   // Personnaliser le menu contextuel des colonnes
   const handleContextMenuPreparing = useCallback((e: any) => {
@@ -519,7 +587,7 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
               // Compter les colonnes système déjà fixées ($$select, $$edit)
               const allColumns = gridInstance.getVisibleColumns();
               const systemFixedCount = allColumns.filter((c: any) =>
-                c.stickyLeft && c.dataField?.startsWith('$')
+                  c.stickyLeft && c.dataField?.startsWith('$')
               ).length;
 
               // Déplacer la colonne juste après les colonnes système
@@ -627,7 +695,7 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
         // Évaluer les conditions des hilites
         const evalContext = createEvalContext({ ...context, ...record });
         const matchedHilites = fieldHilites.filter((hilite: any) =>
-          parseExpression(hilite.condition ?? "")(evalContext)
+            parseExpression(hilite.condition ?? "")(evalContext)
         );
 
         if (matchedHilites && matchedHilites.length > 0) {
@@ -662,7 +730,7 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
     if (gridInstance) {
       // Retirer le groupIndex de la colonne
       gridInstance.columnOption(dataField, 'groupIndex', undefined);
-      dxLog('[DxGrid] Ungrouped column:', dataField);
+      console.log('[DxGrid] Ungrouped column:', dataField);
     }
   }, []);
 
@@ -743,8 +811,8 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
     // Vérifier s'il y a une ligne en cours d'édition
     const currentEditingKey = gridInstance.option('editing.editRowKey');
     const isSwitchingRow = currentEditingKey !== undefined &&
-                           currentEditingKey !== null &&
-                           currentEditingKey !== e.key;
+        currentEditingKey !== null &&
+        currentEditingKey !== e.key;
 
     // Si on switch de ligne, sauvegarder puis ouvrir la nouvelle ligne
     if (isSwitchingRow) {
@@ -887,10 +955,10 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
 
     // Trouver les indices des lignes sélectionnées
     const selectedIndices = visibleRows
-      .map((row: any, index: number) =>
-        selectedRowKeys.includes(row.key) ? index : null
-      )
-      .filter((index: number | null) => index !== null) as number[];
+        .map((row: any, index: number) =>
+            selectedRowKeys.includes(row.key) ? index : null
+        )
+        .filter((index: number | null) => index !== null) as number[];
 
     // Mettre à jour state.selectedRows pour que la toolbar OneToMany fonctionne
     setState((draft) => {
@@ -979,13 +1047,24 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
     return () => clearInterval(interval);
   }, []); // Pas de dépendances car on utilise un ref
 
+  // handleContentReady utilise syncColumnWidths défini plus haut
+  const handleContentReady = useCallback((e: any) => {
+    if (!hasGrouping) return;
+    syncColumnWidths(e.component);
+  }, [hasGrouping, syncColumnWidths]);
+
   // Callback pour personnaliser les colonnes AVANT le rendu initial
   // Définit une largeur sur les colonnes expand générées par DevExtreme pour le groupement
   // Note: Les colonnes utilisateur ont déjà une largeur par défaut dans useDxColumns
   const handleCustomizeColumns = useCallback((columns: any[]) => {
     columns.forEach((col) => {
-      if ((col.command === 'expand' || col.type === 'groupExpand') && !col.width) {
+      // Forcer une largeur fixe sur la colonne expand pour éviter que DevExtreme ne l'élargisse
+      // quand il y a peu de colonnes et qu'il essaie de remplir l'espace disponible
+      if (col.command === 'expand' || col.type === 'groupExpand') {
         col.width = 30;
+        col.minWidth = 30;
+        col.maxWidth = 30;
+        col.allowResizing = false;  // Empêcher le redimensionnement et la distribution d'espace
       }
     });
   }, []);
@@ -1114,154 +1193,156 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
   }, [readonly]);
 
   return (
-    <GridContext.Provider value={gridContext}>
-      <Box d="flex" flexDirection="column" flex={1} style={{ height: "100%", minWidth: 0, overflow: "hidden" }}>
-        <DataGrid
-        ref={dataGridRef}
-        dataSource={dxDataSource}
-        keyExpr="id"
-        dataRowRender={DxRow}
-        showBorders={true}
-        rowAlternationEnabled={true}
-        hoverStateEnabled={true}
-        columnAutoWidth={!hasGrouping}
-        allowColumnResizing={true}
-        columnResizingMode="widget"
-        wordWrapEnabled={false}
-        remoteOperations={REMOTE_OPERATIONS}
-        repaintChangesOnly={true}
-        width="100%"
-        height="100%"
-        keyboardNavigation={KEYBOARD_NAVIGATION}
-        customizeColumns={handleCustomizeColumns}
-        onKeyDown={handleKeyDown}
-        onFocusedCellChanging={handleFocusedCellChanging}
-        onFocusedCellChanged={handleFocusedCellChanged}
-        onOptionChanged={handleOptionChanged}
-        onContextMenuPreparing={handleContextMenuPreparing}
-        onRowPrepared={handleRowPrepared}
-        onCellPrepared={handleCellPrepared}
-        onCellClick={handleCellClick}
-        onInitNewRow={handleInitNewRow}
-        focusedRowEnabled={true}
-        onEditingStart={handleEditingStart}
-        onSaved={handleSaved}
-        onEditCanceled={handleEditCanceled}
-        onRowDblClick={(e: any) => {
-          // Ne pas ouvrir le formulaire si une ligne est en édition
-          if (!isRowEditingRef.current) {
-            onEdit?.(e.data);
-          }
-        }}
-        // Note: onRowExpanded/onRowCollapsed retirés car updateDimensions/repaint causaient un saut visuel
-      >
-        {/* Colonne de sélection/undo - affiche checkbox pour lignes normales, undo pour lignes modifiées */}
-        {selectionMode !== "none" && (
-          <Column
-            key="$$select"
-            {...selectColumnProps}
-          />
-        )}
-
-        {/* Colonne edit-icon - cachée pour les lignes en édition */}
-        {view.editIcon !== false && (
-          <Column
-            key="$$edit"
-            {...getEditColumnProps({
-              view,
-              onEdit,
-            })}
-          />
-        )}
-
-        {/* Colonne de commandes DevExtreme vide pour désactiver les boutons Edit/Save/Cancel par défaut */}
-        {view.editable && (
-          <Column type="buttons" width={0} visible={false} />
-        )}
-
-        {/* Colonnes (fields ET buttons dans l'ordre de la vue) */}
-        {columns.map((col: any, idx: number) => (
-          <Column
-            key={col.dataField || `col_${idx}`}
-            {...getStandardColumnProps({
-              col,
-              idx,
-              view,
-              viewContext: context,
-              actionExecutor,
-              onUpdate,
-              allFields: fields,
-              onUngroup: handleUngroup,
-            })}
-          />
-        ))}
-
-        {/* Tri - UI DevExtreme, traitement Axelor server-side */}
-        <Sorting mode="multiple" />
-
-        {/* Filtrage - UI DevExtreme, traitement Axelor server-side */}
-        {view.customSearch && <FilterRow visible />}
-        {view.customSearch && <HeaderFilter visible />}
-
-        {/* Groupement - Toujours actif pour permettre le drag & drop et menu contextuel */}
-        <Grouping autoExpandAll={false} contextMenuEnabled={true} />
-
-        {/* Pagination gérée par Axelor (externe à DevExtreme) */}
-        <Paging enabled={false} />
-
-        {/* Scrolling horizontal et vertical - mode standard pour les records de la page seulement */}
-        <Scrolling
-          mode="standard"
-          rowRenderingMode="standard"
-          columnRenderingMode="standard"
-          showScrollbar="always"
-          useNative={false}
-        />
-
-        {/* Sélection gérée manuellement via notre colonne personnalisée */}
-
-        {/* Column Fixing - Désactivé car crée des tables séparées qui cassent dataRowRender */}
-        {/* On utilise CSS sticky (stickyLeft/stickyRight) à la place via DxCell */}
-        <ColumnFixing enabled={false} />
-
-        {/* Édition (si editable) */}
-        {view.editable && (
-          <Editing
-            mode="row"
-            allowUpdating={view.canEdit !== false}
-            allowAdding={false}
-            allowDeleting={false}
-            selectTextOnEditStart={true}
-            startEditAction="click"
-            useIcons={false}
-            refreshMode="repaint"
-            newRowPosition="last"
-          />
-        )}
-
-        {/* Export Excel - désactivé car géré par Axelor */}
-        <Export enabled={false} />
-
-        {/* Toolbar - uniquement searchPanel, les boutons sont gérés par la toolbar Axelor */}
-        <Toolbar>
-          {view.freeSearch && <ToolbarItem name="searchPanel" />}
-        </Toolbar>
-
-        {/* MasterDetail pour expandable et tree-grid */}
-        {needsMasterDetail && (
-          <MasterDetail
-            enabled={true}
-            render={(detailProps: any) => (
-              <MasterDetailRenderer
-                view={view}
-                record={detailProps.data}
-                isTreeGrid={!!isTreeGrid}
-              />
+      <GridContext.Provider value={gridContext}>
+        <Box d="flex" flexDirection="column" flex={1} style={{ height: "100%", minWidth: 0, overflow: "hidden" }}>
+          <DataGrid
+              ref={dataGridRef}
+              dataSource={dxDataSource}
+              keyExpr="id"
+              dataRowRender={DxRow}
+              showBorders={true}
+              rowAlternationEnabled={true}
+              hoverStateEnabled={true}
+              columnAutoWidth={!hasGrouping}
+              allowColumnResizing={true}
+              columnResizingMode="widget"
+              wordWrapEnabled={false}
+              remoteOperations={REMOTE_OPERATIONS}
+              repaintChangesOnly={true}
+              width="100%"
+              height="100%"
+              keyboardNavigation={KEYBOARD_NAVIGATION}
+              customizeColumns={handleCustomizeColumns}
+              onKeyDown={handleKeyDown}
+              onFocusedCellChanging={handleFocusedCellChanging}
+              onFocusedCellChanged={handleFocusedCellChanged}
+              onOptionChanged={handleOptionChanged}
+              onContextMenuPreparing={handleContextMenuPreparing}
+              onRowPrepared={handleRowPrepared}
+              onCellPrepared={handleCellPrepared}
+              onCellClick={handleCellClick}
+              onInitNewRow={handleInitNewRow}
+              focusedRowEnabled={true}
+              onEditingStart={handleEditingStart}
+              onSaved={handleSaved}
+              onEditCanceled={handleEditCanceled}
+              onContentReady={handleContentReady}
+              onRowDblClick={(e: any) => {
+                // Ne pas ouvrir le formulaire si une ligne est en édition
+                if (!isRowEditingRef.current) {
+                  onEdit?.(e.data);
+                }
+              }}
+              // Note: onRowExpanded/onRowCollapsed retirés car updateDimensions/repaint causaient un saut visuel
+          >
+            {/* Colonne de sélection/undo - affiche checkbox pour lignes normales, undo pour lignes modifiées */}
+            {selectionMode !== "none" && (
+                <Column
+                    key="$$select"
+                    {...selectColumnProps}
+                />
             )}
-          />
-        )}
-        <StateStoring enabled={false} />
-      </DataGrid>
+
+            {/* Colonne edit-icon - cachée pour les lignes en édition */}
+            {view.editIcon !== false && (
+                <Column
+                    key="$$edit"
+                    {...getEditColumnProps({
+                      view,
+                      onEdit,
+                    })}
+                />
+            )}
+
+            {/* Colonne de commandes DevExtreme vide pour désactiver les boutons Edit/Save/Cancel par défaut */}
+            {view.editable && (
+                <Column type="buttons" width={0} visible={false} />
+            )}
+
+            {/* Colonnes (fields ET buttons dans l'ordre de la vue) */}
+            {columns.map((col: any, idx: number) => (
+                <Column
+                    key={col.dataField || `col_${idx}`}
+                    {...getStandardColumnProps({
+                      col,
+                      idx,
+                      view,
+                      viewContext: context,
+                      actionExecutor,
+                      onUpdate,
+                      allFields: fields,
+                      onUngroup: handleUngroup,
+                    })}
+                />
+            ))}
+
+            {/* Tri - UI DevExtreme, traitement Axelor server-side */}
+            <Sorting mode="multiple" />
+
+            {/* Filtrage - UI DevExtreme, traitement Axelor server-side */}
+            {/* FilterRow visible par défaut (comme Axelor), sauf si customSearch="false" */}
+            {view.customSearch !== false && <FilterRow visible />}
+            {view.customSearch !== false && <HeaderFilter visible />}
+
+            {/* Groupement - Toujours actif pour permettre le drag & drop et menu contextuel */}
+            <Grouping autoExpandAll={false} contextMenuEnabled={true} />
+
+            {/* Pagination gérée par Axelor (externe à DevExtreme) */}
+            <Paging enabled={false} />
+
+            {/* Scrolling horizontal et vertical - mode standard pour les records de la page seulement */}
+            <Scrolling
+                mode="standard"
+                rowRenderingMode="standard"
+                columnRenderingMode="standard"
+                showScrollbar="always"
+                useNative={false}
+            />
+
+            {/* Sélection gérée manuellement via notre colonne personnalisée */}
+
+            {/* Column Fixing - Désactivé car crée des tables séparées qui cassent dataRowRender */}
+            {/* On utilise CSS sticky (stickyLeft/stickyRight) à la place via DxCell */}
+            <ColumnFixing enabled={false} />
+
+            {/* Édition (si editable) */}
+            {view.editable && (
+                <Editing
+                    mode="row"
+                    allowUpdating={view.canEdit !== false}
+                    allowAdding={false}
+                    allowDeleting={false}
+                    selectTextOnEditStart={true}
+                    startEditAction="click"
+                    useIcons={false}
+                    refreshMode="repaint"
+                    newRowPosition="last"
+                />
+            )}
+
+            {/* Export Excel - désactivé car géré par Axelor */}
+            <Export enabled={false} />
+
+            {/* Toolbar - uniquement searchPanel, les boutons sont gérés par la toolbar Axelor */}
+            <Toolbar>
+              {view.freeSearch && <ToolbarItem name="searchPanel" />}
+            </Toolbar>
+
+            {/* MasterDetail pour expandable et tree-grid */}
+            {needsMasterDetail && (
+                <MasterDetail
+                    enabled={true}
+                    render={(detailProps: any) => (
+                        <MasterDetailRenderer
+                            view={view}
+                            record={detailProps.data}
+                            isTreeGrid={!!isTreeGrid}
+                        />
+                    )}
+                />
+            )}
+            <StateStoring enabled={false} />
+          </DataGrid>
         </Box>
       </GridContext.Provider>
   );
@@ -1274,35 +1355,35 @@ export default React.memo(DxGridInner);
  * Renderer pour le MasterDetail (expandable et tree-grid)
  */
 function MasterDetailRenderer({
-  view,
-  record,
-  isTreeGrid,
-}: {
+                                view,
+                                record,
+                                isTreeGrid,
+                              }: {
   view: GridView;
   record: any;
   isTreeGrid: boolean;
 }) {
   if (isTreeGrid) {
     return (
-      <Box p={2} bg="light">
-        <p>
-          <strong>Tree-Grid MasterDetail</strong> (à implémenter)
-        </p>
-        <p>Record ID: {record.id}</p>
-        <p>Children field: {view.treeField}</p>
-        {view.summaryView && <p>Summary View: {view.summaryView}</p>}
-      </Box>
+        <Box p={2} bg="light">
+          <p>
+            <strong>Tree-Grid MasterDetail</strong> (à implémenter)
+          </p>
+          <p>Record ID: {record.id}</p>
+          <p>Children field: {view.treeField}</p>
+          {view.summaryView && <p>Summary View: {view.summaryView}</p>}
+        </Box>
     );
   }
 
   // Expandable
   return (
-    <Box p={2} bg="light">
-      <p>
-        <strong>Expandable MasterDetail</strong> (à implémenter)
-      </p>
-      <p>Record ID: {record.id}</p>
-      {view.summaryView && <p>Summary View: {view.summaryView}</p>}
-    </Box>
+      <Box p={2} bg="light">
+        <p>
+          <strong>Expandable MasterDetail</strong> (à implémenter)
+        </p>
+        <p>Record ID: {record.id}</p>
+        {view.summaryView && <p>Summary View: {view.summaryView}</p>}
+      </Box>
   );
 }

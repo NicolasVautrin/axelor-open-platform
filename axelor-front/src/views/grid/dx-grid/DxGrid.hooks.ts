@@ -10,7 +10,7 @@ import {
   isNewRecord,
 } from "./dx-grid-utils";
 import { convertDxFilterToAxelor } from "./dx-filter-converter";
-import { dxLog } from "@/utils/dev-tools";
+// dxLog removed - using console.log instead
 import { getDefaultStore } from "jotai";
 import isEqual from "lodash/isEqual";
 import { useGetErrors, showErrors } from "@/views/form/form";
@@ -20,12 +20,13 @@ interface UseDxColumnsParams {
   fields: Record<string, any>;
   groupByFields: string[];
   gridStateColumns?: any[];
+  orderBy?: string; // ✅ FIX TRI: orderBy depuis view.orderBy pour configurer sortOrder/sortIndex
 }
 
 /**
  * Custom hook pour mapper les colonnes Axelor vers DevExtreme
  */
-export function useDxColumns({ view, fields, groupByFields, gridStateColumns = [] }: UseDxColumnsParams) {
+export function useDxColumns({ view, fields, groupByFields, gridStateColumns = [], orderBy }: UseDxColumnsParams) {
   return useMemo(() => {
     // Créer une map pour une recherche rapide des propriétés de colonne dans gridState
     const gridStateColumnMap = new Map();
@@ -34,6 +35,24 @@ export function useDxColumns({ view, fields, groupByFields, gridStateColumns = [
         gridStateColumnMap.set(col.name, col);
       }
     });
+
+    // ✅ FIX TRI: Parser orderBy pour configurer sortOrder/sortIndex sur les colonnes
+    // Cela permet à DevExtreme de savoir comment trier les groupes
+    const sortConfigMap = new Map<string, { sortIndex: number; sortOrder: 'asc' | 'desc' }>();
+    if (orderBy) {
+      orderBy.split(',').forEach((part, index) => {
+        const trimmed = part.trim();
+        if (trimmed) {
+          const isDesc = trimmed.startsWith('-');
+          const fieldName = isDesc ? trimmed.substring(1) : trimmed;
+          sortConfigMap.set(fieldName, {
+            sortIndex: index,
+            sortOrder: isDesc ? 'desc' : 'asc',
+          });
+        }
+      });
+      console.log("[useDxColumns] Parsed orderBy:", orderBy, "-> sortConfigMap:", Object.fromEntries(sortConfigMap));
+    }
 
     return (view.items || [])
       .filter((item): item is Field => "name" in item && item.name !== undefined)
@@ -103,6 +122,10 @@ export function useDxColumns({ view, fields, groupByFields, gridStateColumns = [
         // Déterminer l'alignement selon le type de données (comme Axelor)
         const alignment = dataType === 'number' ? 'right' : 'left';
 
+        // ✅ FIX TRI: Récupérer sortOrder et sortIndex depuis orderBy
+        // Cela permet à DevExtreme de trier correctement les groupes
+        const sortConfig = sortConfigMap.get(field.name);
+
         return {
           isButton: false,
           field,
@@ -128,6 +151,12 @@ export function useDxColumns({ view, fields, groupByFields, gridStateColumns = [
           showWhenGrouped: true,
           // Lookup pour les sélections
           lookup,
+          // ✅ FIX TRI: sortOrder et sortIndex depuis view.orderBy
+          // Permet à DevExtreme de trier les groupes correctement
+          ...(sortConfig && {
+            sortOrder: sortConfig.sortOrder,
+            sortIndex: sortConfig.sortIndex,
+          }),
           // Fonction pour extraire la valeur (gère M2O avec targetName)
           calculateCellValue: (rowData: DataRecord) => {
             // Pour les colonnes avec lookup, retourner la valeur brute (pas la traduction)
@@ -156,7 +185,7 @@ export function useDxColumns({ view, fields, groupByFields, gridStateColumns = [
           } : undefined,
         };
       });
-  }, [view.items, fields, groupByFields, gridStateColumns]);
+  }, [view.items, fields, groupByFields, gridStateColumns, orderBy]);
 }
 
 interface UseTriggerSearchParams {
@@ -222,15 +251,38 @@ export function useTriggerSearch({ dataStore, fieldsToFetch }: UseTriggerSearchP
 
 interface UseHandleOptionChangedParams {
   setHasGrouping: React.Dispatch<React.SetStateAction<boolean>>;
-  triggerSearch: (options: { sortBy?: string[]; filter?: any }) => Promise<void>;
+  triggerSearch: (options: { sortBy?: string[]; filter?: any }) => Promise<void>;  // Gardé pour les filtres
   setGridState: (updater: (draft: any) => void) => void;
+  currentSortByRef: React.MutableRefObject<string[] | undefined>;
+  dxDataSource: any;
+  onSyncColumnWidths?: (gridInstance: any) => void;  // Callback pour synchroniser headers→rowsview
 }
 
 /**
  * Hook pour intercepter les changements d'options DevExtreme (tri, groupement, colonnes)
  */
-export function useHandleOptionChanged({ setHasGrouping, triggerSearch, setGridState }: UseHandleOptionChangedParams) {
+export function useHandleOptionChanged({ setHasGrouping, triggerSearch, setGridState, currentSortByRef, dxDataSource, onSyncColumnWidths }: UseHandleOptionChangedParams) {
   return useCallback((e: any) => {
+    // ✅ DEBUG: Logger les événements importants (exclure hoveredElement qui flood)
+    if (e.name !== "hoveredElement") {
+      console.log("[handleOptionChanged] Event:", e.name, e.fullName, "value:", e.value);
+    }
+
+    // ✅ FIX COLUMN RESIZE: Synchroniser les largeurs headers→rowsview après un resize
+    // Quand une colonne est redimensionnée, DevExtreme met à jour les headers mais pas le rowsview
+    // si on a du grouping (à cause de table-layout: fixed avec group rows)
+    // Debounce pour éviter trop d'appels pendant le drag
+    if (e.fullName?.includes("width") && onSyncColumnWidths) {
+      // Annuler le précédent timeout s'il existe
+      if ((window as any).__dxGridSyncTimeout) {
+        clearTimeout((window as any).__dxGridSyncTimeout);
+      }
+      // Attendre 50ms après le dernier événement width avant de sync
+      (window as any).__dxGridSyncTimeout = setTimeout(() => {
+        onSyncColumnWidths(e.component);
+      }, 50);
+    }
+
     // Détecter les changements de groupement
     if (e.name === "columns" && e.fullName?.includes("groupIndex")) {
       // Vérifier s'il y a des colonnes groupées
@@ -248,21 +300,31 @@ export function useHandleOptionChanged({ setHasGrouping, triggerSearch, setGridS
 
     // Détecter les changements de tri
     if (e.name === "columns" && e.fullName?.includes("sortOrder")) {
-      // Récupérer les colonnes triées
+      // Récupérer les colonnes triées (y compris les colonnes groupées - l'utilisateur peut vouloir trier par la colonne de groupement)
       const sortedColumns = e.component.getVisibleColumns()
         .filter((col: any) => col.sortOrder)
         .sort((a: any, b: any) => (a.sortIndex || 0) - (b.sortIndex || 0));
 
-      if (sortedColumns.length > 0) {
-        const sortBy = sortedColumns.map((col: any) =>
-          `${col.sortOrder === 'desc' ? '-' : ''}${col.dataField}`
-        );
+      // Dédupliquer par dataField (au cas où)
+      const seenFields = new Set<string>();
+      const uniqueSortBy: string[] = [];
+      sortedColumns.forEach((col: any) => {
+        if (col.dataField && !seenFields.has(col.dataField)) {
+          seenFields.add(col.dataField);
+          uniqueSortBy.push(`${col.sortOrder === 'desc' ? '-' : ''}${col.dataField}`);
+        }
+      });
 
-        // Transmettre le tri à Axelor
-        triggerSearch({ sortBy });
+      if (uniqueSortBy.length > 0) {
+        console.log("[handleOptionChanged] Sort changed, updating ref and reloading dataSource with sortBy:", uniqueSortBy);
+        // ✅ FIX: Mettre à jour la ref (lue par CustomStore.load()) puis recharger
+        currentSortByRef.current = uniqueSortBy;
+        dxDataSource?.reload();
       } else {
-        // Aucun tri : effacer le tri en passant un tableau vide
-        triggerSearch({ sortBy: [] });
+        // Aucun tri : effacer le tri
+        console.log("[handleOptionChanged] Sort cleared, reloading dataSource");
+        currentSortByRef.current = undefined;
+        dxDataSource?.reload();
       }
     }
 
@@ -317,11 +379,11 @@ export function useHandleOptionChanged({ setHasGrouping, triggerSearch, setGridS
         const hasChanges = updatedColumns.some((newCol: any, index: number) => {
           const oldCol = existingAxelorColumns[index];
           return !oldCol ||
-                 oldCol.name !== newCol.name ||
-                 oldCol.width !== newCol.width ||
-                 oldCol.visible !== newCol.visible ||
-                 oldCol.visibleIndex !== newCol.visibleIndex ||
-                 oldCol.groupIndex !== newCol.groupIndex;
+            oldCol.name !== newCol.name ||
+            oldCol.width !== newCol.width ||
+            oldCol.visible !== newCol.visible ||
+            oldCol.visibleIndex !== newCol.visibleIndex ||
+            oldCol.groupIndex !== newCol.groupIndex;
         });
 
         if (hasChanges) {
@@ -329,7 +391,7 @@ export function useHandleOptionChanged({ setHasGrouping, triggerSearch, setGridS
         }
       });
     }
-  }, [triggerSearch, setGridState, setHasGrouping]);
+  }, [triggerSearch, setGridState, setHasGrouping, currentSortByRef, dxDataSource]);
 }
 
 interface UseHandleEditingTabNavigationParams {
@@ -498,15 +560,15 @@ interface UseHandleEditingEnterKeyDownParams {
  * @param dataGridRef - Référence au DataGrid
  */
 export function useHandleEditingEnterKeyDown({
-  dataGridRef,
-  editingRowFormAtomRef,
-  editingRowStoreRef,  // ✅ FIX DevExtreme v22
-  initialRecordRef,
-  isNewRowRef,
-  localOnUpdate,
-  localOnSave,
-  isLocalMode
-}: UseHandleEditingEnterKeyDownParams) {
+                                               dataGridRef,
+                                               editingRowFormAtomRef,
+                                               editingRowStoreRef,  // ✅ FIX DevExtreme v22
+                                               initialRecordRef,
+                                               isNewRowRef,
+                                               localOnUpdate,
+                                               localOnSave,
+                                               isLocalMode
+                                             }: UseHandleEditingEnterKeyDownParams) {
   const isPopupOpen = useIsPopupOpen();
   const getErrors = useGetErrors(); // ← Validation Axelor
 
@@ -614,15 +676,15 @@ export function useHandleEditingEnterKeyDown({
  * @param dataGridRef - Référence au DataGrid
  */
 export function useHandleEditingKeyDown({
-  dataGridRef,
-  editingRowFormAtomRef,
-  editingRowStoreRef,  // ✅ FIX: Ajouter le store dédié
-  initialRecordRef,
-  isNewRowRef,
-  localOnUpdate,
-  localOnSave,
-  isLocalMode
-}: UseHandleEditingEnterKeyDownParams) {
+                                          dataGridRef,
+                                          editingRowFormAtomRef,
+                                          editingRowStoreRef,  // ✅ FIX: Ajouter le store dédié
+                                          initialRecordRef,
+                                          isNewRowRef,
+                                          localOnUpdate,
+                                          localOnSave,
+                                          isLocalMode
+                                        }: UseHandleEditingEnterKeyDownParams) {
   const handleTab = useHandleEditingTabKeyDown({ dataGridRef });
   const handleEnter = useHandleEditingEnterKeyDown({
     dataGridRef,
@@ -737,18 +799,18 @@ interface UseHandleRowClickAwayParams {
  * et détecte les portals (Floating UI, MUI) pour éviter de sauvegarder quand on clique sur des dropdowns.
  */
 export function useHandleRowClickAway({
-  gridId,  // ✅ FIX MULTI-GRID: ID unique pour filtrer les clickAway events
-  dataGridRef,
-  isRowEditingRef,
-  isSavingRef,
-  editingRowFormAtomRef,
-  editingRowStoreRef,  // ✅ FIX DevExtreme v22
-  initialRecordRef,
-  isNewRowRef,
-  localOnUpdate,
-  localOnSave,
-  isLocalMode
-}: UseHandleRowClickAwayParams) {
+                                        gridId,  // ✅ FIX MULTI-GRID: ID unique pour filtrer les clickAway events
+                                        dataGridRef,
+                                        isRowEditingRef,
+                                        isSavingRef,
+                                        editingRowFormAtomRef,
+                                        editingRowStoreRef,  // ✅ FIX DevExtreme v22
+                                        initialRecordRef,
+                                        isNewRowRef,
+                                        localOnUpdate,
+                                        localOnSave,
+                                        isLocalMode
+                                      }: UseHandleRowClickAwayParams) {
   const isInRowEditingContext = useInRowEditingContext();
   const getErrors = useGetErrors(); // ← Validation Axelor
 
@@ -922,10 +984,10 @@ async function saveEditingRowAndClose(
     if (hasChanges || isNew) {
       try {
         if (isNew && localOnSave) {
-          dxLog(`${logPrefix} Calling localOnSave (isNew=true)`);
+          console.log(`${logPrefix} Calling localOnSave (isNew=true)`);
           await localOnSave(currentRecord);
         } else if (!isNew && localOnUpdate) {
-          dxLog(`${logPrefix} Calling localOnUpdate (hasChanges=true)`);
+          console.log(`${logPrefix} Calling localOnUpdate (hasChanges=true)`);
           await localOnUpdate(currentRecord);
         }
       } catch (error) {

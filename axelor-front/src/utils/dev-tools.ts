@@ -787,6 +787,156 @@ export async function addMenuItem(menuName: string, title: string, parentName?: 
   }
 }
 
+// ============================================================================
+// CUSTOM VIEW MANAGEMENT (MetaViewCustom - user personalizations)
+// ============================================================================
+
+/**
+ * Get a custom view (user personalization) by view name
+ * Usage: getCustomView('view-name')
+ * Returns the MetaViewCustom record for the current user, or null if none exists
+ */
+export async function getCustomView(viewName: string) {
+  try {
+    const basePath = window.location.pathname.split('/')[1] || '';
+    const prefix = basePath ? `/${basePath}` : '';
+    const csrfToken = getCsrfToken();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken;
+    }
+
+    const response = await fetch(`${prefix}/ws/rest/com.axelor.meta.db.MetaViewCustom/search`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({
+        data: {
+          criteria: [{
+            fieldName: 'name',
+            operator: '=',
+            value: viewName
+          }]
+        }
+      })
+    });
+
+    const result = await response.json();
+    if (result.total === 0) {
+      console.log(`ℹ️ Pas de personnalisation pour la vue ${viewName}`);
+      return null;
+    }
+
+    const customView = result.data[0];
+    console.log(`✅ Personnalisation trouvée pour ${viewName}:`, customView);
+    return customView;
+  } catch (error) {
+    console.error('❌ Erreur:', error);
+    throw error;
+  }
+}
+
+/**
+ * List all custom views (user personalizations) for the current user
+ * Usage: listCustomViews()
+ */
+export async function listCustomViews() {
+  try {
+    const basePath = window.location.pathname.split('/')[1] || '';
+    const prefix = basePath ? `/${basePath}` : '';
+    const csrfToken = getCsrfToken();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken;
+    }
+
+    const response = await fetch(`${prefix}/ws/rest/com.axelor.meta.db.MetaViewCustom/search`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({
+        data: {},
+        fields: ['name', 'title', 'type', 'model', 'shared', 'user.name']
+      })
+    });
+
+    const result = await response.json();
+    console.log(`📋 ${result.total} personnalisation(s) trouvée(s):`, result.data);
+    return result.data;
+  } catch (error) {
+    console.error('❌ Erreur:', error);
+    throw error;
+  }
+}
+
+/**
+ * Remove a custom view (user personalization) by view name
+ * Usage: removeCustomView('view-name')
+ * This removes the user's personalization, restoring the original view
+ */
+export async function removeCustomView(viewName: string) {
+  try {
+    const basePath = window.location.pathname.split('/')[1] || '';
+    const prefix = basePath ? `/${basePath}` : '';
+    const csrfToken = getCsrfToken();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken;
+    }
+
+    // 1. Search for the custom view
+    const searchResponse = await fetch(`${prefix}/ws/rest/com.axelor.meta.db.MetaViewCustom/search`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({
+        data: {
+          criteria: [{
+            fieldName: 'name',
+            operator: '=',
+            value: viewName
+          }]
+        }
+      })
+    });
+
+    const searchResult = await searchResponse.json();
+    if (searchResult.total === 0) {
+      console.warn(`⚠️ Pas de personnalisation pour la vue ${viewName}`);
+      return { status: -1, message: 'Personnalisation non trouvée' };
+    }
+
+    const customView = searchResult.data[0];
+
+    // 2. Delete the custom view
+    const deleteResponse = await fetch(`${prefix}/ws/rest/com.axelor.meta.db.MetaViewCustom/${customView.id}`, {
+      method: 'DELETE',
+      headers,
+      credentials: 'include',
+    });
+
+    const deleteResult = await deleteResponse.json();
+
+    if (deleteResult.status === 0) {
+      console.log(`✅ Personnalisation de ${viewName} supprimée !`);
+      console.log('🔄 Rafraîchis la page (F5) pour voir la vue originale');
+      return deleteResult;
+    } else {
+      console.error('❌ Erreur:', deleteResult);
+      return deleteResult;
+    }
+  } catch (error) {
+    console.error('❌ Erreur lors de la suppression:', error);
+    throw error;
+  }
+}
+
 // Expose utilities on window in development mode
 if (import.meta.env.DEV) {
   (window as any).getView = getView;
@@ -800,10 +950,13 @@ if (import.meta.env.DEV) {
   (window as any).removeView = removeView;
   (window as any).removeAction = removeAction;
   (window as any).removeMenuItem = removeMenuItem;
+  (window as any).getCustomView = getCustomView;
+  (window as any).listCustomViews = listCustomViews;
+  (window as any).removeCustomView = removeCustomView;
   (window as any).dxLog = dxLog;
   (window as any).dxGetLogs = dxGetLogs;
   (window as any).dxClearLogs = dxClearLogs;
   (window as any).dxDownloadLogs = dxDownloadLogs;
-  console.log('🔧 DevTools loaded: getView(), getAction(), getMenuItem(), updateView(), updateAction(), addView(), addAction(), addMenuItem(), removeView(), removeAction(), removeMenuItem() are available');
+  console.log('🔧 DevTools loaded: getView(), getAction(), getMenuItem(), updateView(), updateAction(), addView(), addAction(), addMenuItem(), removeView(), removeAction(), removeMenuItem(), getCustomView(), listCustomViews(), removeCustomView() are available');
   console.log('📊 Logging: dxLog(), dxGetLogs(), dxClearLogs(), dxDownloadLogs() are available (using IndexedDB with durability: strict)');
 }

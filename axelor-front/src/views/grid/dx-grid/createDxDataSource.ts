@@ -1,7 +1,7 @@
 import CustomStore from "devextreme/data/custom_store";
 import DataSource from "devextreme/data/data_source";
 import { DataStore } from "@/services/client/data-store";
-import { dxLog } from "@/utils/dev-tools";
+// dxLog removed - using console.log instead
 import { convertDxFilterToAxelor } from "./dx-filter-converter";
 import { enableDataSourceDebug } from "./dx-grid-debug";
 import { GridRow } from "@axelor/ui/grid";
@@ -31,7 +31,8 @@ export function createDxDataSource(
   fieldsToFetch: string[],
   selectionSync?: SelectionSyncOptions,
   editingRowFormAtomRef?: React.MutableRefObject<any>,  // ✅ FIX: Ref vers le formAtom de la ligne en édition
-  editingRowStoreRef?: React.MutableRefObject<any>      // ✅ FIX DevExtreme v22: Store Jotai dédié
+  editingRowStoreRef?: React.MutableRefObject<any>,     // ✅ FIX DevExtreme v22: Store Jotai dédié
+  currentSortByRef?: React.MutableRefObject<string[] | undefined>  // ✅ FIX: Ref pour le tri courant (géré par handleOptionChanged)
 ) {
   const dxGridStore = new CustomStore({
     key: "id",
@@ -41,34 +42,48 @@ export function createDxDataSource(
      */
     load: async (loadOptions) => {
       try {
+        console.log("[DxDataSource] loadOptions:", loadOptions);
+        console.log("[DxDataSource] loadOptions.sort:", loadOptions.sort);
+        console.log("[DxDataSource] loadOptions.group:", loadOptions.group);
+
         // Convertir les options DevExtreme en SearchOptions Axelor
         const searchOptions: any = {
           ...dataStore.options,
           fields: fieldsToFetch,
         };
 
-        // 1. Convertir le tri et le groupement
+        // 1. Convertir le tri
         const sortBy: string[] = [];
+        const addedFields = new Set<string>(); // Pour éviter les doublons
 
-        // Les groupBy viennent en premier dans le tri
-        if (loadOptions.group && Array.isArray(loadOptions.group)) {
-          loadOptions.group.forEach((g: any) => {
-            const prefix = g.desc ? '-' : '';
-            sortBy.push(`${prefix}${g.selector}`);
+        // ✅ FIX TRI SERVEUR: D'abord le tri choisi par l'utilisateur (depuis la ref)
+        if (currentSortByRef?.current && currentSortByRef.current.length > 0) {
+          currentSortByRef.current.forEach((s: string) => {
+            // Extraire le nom du champ (sans le préfixe -)
+            const fieldName = s.startsWith('-') ? s.substring(1) : s;
+            if (!addedFields.has(fieldName)) {
+              sortBy.push(s);
+              addedFields.add(fieldName);
+            }
           });
+          console.log("[DxDataSource] Added sortBy from ref:", currentSortByRef.current);
         }
 
-        // Puis les sorts normaux
+        // Puis merger avec loadOptions.sort (tri par défaut comme "id")
         if (loadOptions.sort && Array.isArray(loadOptions.sort)) {
           loadOptions.sort.forEach((s: any) => {
-            const prefix = s.desc ? '-' : '';
-            sortBy.push(`${prefix}${s.selector}`);
+            if (!addedFields.has(s.selector)) {
+              const prefix = s.desc ? '-' : '';
+              sortBy.push(`${prefix}${s.selector}`);
+              addedFields.add(s.selector);
+            }
           });
+          console.log("[DxDataSource] Merged with loadOptions.sort");
         }
 
         if (sortBy.length > 0) {
           searchOptions.sortBy = sortBy;
-          dxLog("[DxDataSource] Converted sortBy:", sortBy);
+          console.log("[DxDataSource] Final sortBy:", sortBy);
         }
 
         // 2. Convertir le filtre
@@ -96,7 +111,7 @@ export function createDxDataSource(
             } else {
               searchOptions.filter = wrappedFilter;
             }
-            dxLog("[DxDataSource] Converted filter:", wrappedFilter);
+            console.log("[DxDataSource] Converted filter:", wrappedFilter);
           }
         }
 
@@ -125,11 +140,11 @@ export function createDxDataSource(
      * Lire un enregistrement par sa clé
      */
     byKey: async (key) => {
-      dxLog("[DxDataSource] byKey called with key:", key);
+      console.log("[DxDataSource] byKey called with key:", key);
 
       try {
         const record = await dataStore.read(key, { fields: fieldsToFetch });
-        dxLog("[DxDataSource] byKey result:", record);
+        console.log("[DxDataSource] byKey result:", record);
         return record;
       } catch (error) {
         console.error("[DxDataSource] Error reading record:", error);
@@ -141,7 +156,7 @@ export function createDxDataSource(
      * Insérer un nouvel enregistrement
      */
     insert: async (values) => {
-      dxLog("[DxDataSource] insert called with DevExtreme values:", values);
+      console.log("[DxDataSource] insert called with DevExtreme values:", values);
 
       try {
         // ✅ SOLUTION : Lire les valeurs depuis le formAtom au lieu des params DevExtreme
@@ -153,7 +168,7 @@ export function createDxDataSource(
           const formState = store.get(editingRowFormAtomRef.current) as any;
           if (formState?.record && Object.keys(formState.record).length > 0) {
             recordToSave = formState.record;
-            dxLog("[DxDataSource] Using values from formAtom instead of DevExtreme:", recordToSave);
+            console.log("[DxDataSource] Using values from formAtom instead of DevExtreme:", recordToSave);
           }
         }
 
@@ -161,7 +176,7 @@ export function createDxDataSource(
         const { id, ...dataToSave } = recordToSave;
 
         const result = await dataStore.save(dataToSave, { fields: fieldsToFetch });
-        dxLog("[DxDataSource] insert result:", result);
+        console.log("[DxDataSource] insert result:", result);
         return result;
       } catch (error) {
         console.error("[DxDataSource] Error inserting record:", error);
@@ -173,12 +188,12 @@ export function createDxDataSource(
      * Mettre à jour un enregistrement existant
      */
     update: async (key, values) => {
-      dxLog("[DxDataSource] update called with key:", key, "DevExtreme values:", values);
+      console.log("[DxDataSource] update called with key:", key, "DevExtreme values:", values);
 
       try {
         // Récupérer le record complet d'abord (comme handleSaving le faisait)
         const originalRecord = await dataStore.read(key, { fields: fieldsToFetch });
-        dxLog("[DxDataSource] Original record fetched:", originalRecord);
+        console.log("[DxDataSource] Original record fetched:", originalRecord);
 
         // Cloner l'originalRecord pour éviter les problèmes d'immutabilité
         const clonedOriginal = JSON.parse(JSON.stringify(originalRecord));
@@ -192,16 +207,16 @@ export function createDxDataSource(
           const formState = store.get(editingRowFormAtomRef.current) as any;
           if (formState?.record && Object.keys(formState.record).length > 0) {
             valuesToMerge = formState.record;
-            dxLog("[DxDataSource] Using values from formAtom instead of DevExtreme:", valuesToMerge);
+            console.log("[DxDataSource] Using values from formAtom instead of DevExtreme:", valuesToMerge);
           }
         }
 
         // Fusionner les modifications avec le record cloné
         const recordToSave = { ...clonedOriginal, ...valuesToMerge };
-        dxLog("[DxDataSource] Merged record to save:", recordToSave);
+        console.log("[DxDataSource] Merged record to save:", recordToSave);
 
         const result = await dataStore.save(recordToSave, { fields: fieldsToFetch });
-        dxLog("[DxDataSource] update result:", result);
+        console.log("[DxDataSource] update result:", result);
 
         // Retourner une copie mutable pour éviter "Cannot assign to read only property"
         // DevExtreme peut essayer de modifier l'objet retourné
@@ -216,16 +231,16 @@ export function createDxDataSource(
      * Supprimer un enregistrement
      */
     remove: async (key) => {
-      dxLog("[DxDataSource] remove called with key:", key);
+      console.log("[DxDataSource] remove called with key:", key);
 
       try {
         // Récupérer le record pour obtenir la version
         const record = await dataStore.read(key, { fields: ["id", "version"] });
-        dxLog("[DxDataSource] Record fetched for deletion:", record);
+        console.log("[DxDataSource] Record fetched for deletion:", record);
 
         // Supprimer avec id et version (version obligatoire)
         await dataStore.delete({ id: key, version: record.version ?? 0 });
-        dxLog("[DxDataSource] Record deleted successfully");
+        console.log("[DxDataSource] Record deleted successfully");
       } catch (error) {
         console.error("[DxDataSource] Error removing record:", error);
         throw error;
@@ -252,7 +267,7 @@ export function createDxDataSource(
       const selectedKeys = store.get(selectedRowsListAtom);
       const rows = getRows();
 
-      dxLog("[DxDataSource] Selection changed - selectedKeys:", selectedKeys, "rows count:", rows.length);
+      console.log("[DxDataSource] Selection changed - selectedKeys:", selectedKeys, "rows count:", rows.length);
 
       // Convertir les keys en indices dans state.rows
       const selectedIndices: number[] = [];
@@ -263,7 +278,7 @@ export function createDxDataSource(
         }
       });
 
-      dxLog("[DxDataSource] Converted to indices:", selectedIndices);
+      console.log("[DxDataSource] Converted to indices:", selectedIndices);
 
       // Mettre à jour state.selectedRows pour la toolbar
       setState((draft) => {

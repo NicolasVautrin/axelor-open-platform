@@ -50,6 +50,7 @@ export function getEditColumnProps({ view, onEdit }: EditColumnProps) {
     caption: "",
     width: 30,
     minWidth: 30,
+    maxWidth: 30,  // Empêcher DevExtreme d'élargir quand il y a peu de colonnes
     // Note: On utilise stickyLeft (propriété custom) au lieu de fixed (DevExtreme natif)
     // car fixed crée des tables séparées qui cassent l'alignement avec dataRowRender
     // DxCell applique position: sticky via CSS quand stickyLeft=true

@@ -49,6 +49,9 @@ export function getStandardColumnProps({
     dataType: col.dataType,
     groupIndex: col.groupIndex,
     showWhenGrouped: col.showWhenGrouped, // Garder la colonne visible même quand elle est groupée
+    // ✅ FIX TRI: sortOrder et sortIndex depuis view.orderBy
+    sortOrder: col.sortOrder,
+    sortIndex: col.sortIndex,
     lookup: col.lookup,
     calculateCellValue: col.calculateCellValue,
     customizeText: col.customizeText,

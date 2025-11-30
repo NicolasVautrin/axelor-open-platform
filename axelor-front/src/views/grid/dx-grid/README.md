@@ -47,7 +47,7 @@ Cette intégration permet d'utiliser **DevExtreme DataGrid** (v25.1) à la place
 - ✅ Valeurs traduites ($t:fieldName)
 - ✅ **Alignement automatique** : Nombres à droite (via `.number` CSS), texte à gauche, sélections exclues
 
-**Fichiers** : `DxGridInner.tsx`, `dx-grid-utils.ts`, `DxDisplayCell.tsx`
+**Fichiers** : `DxGrid.tsx`, `dx-grid-utils.ts`, `DxDisplayCell.tsx`
 
 **Détails alignement** : Les champs numériques (`DECIMAL`, `INTEGER`, `LONG`) sont automatiquement alignés à droite via la classe CSS `.number` qui applique `justify-content: end`. Les selections et ratings sont exclus de cet alignement même s'ils ont un `serverType` numérique (DxDisplayCell.tsx:135-136).
 
@@ -60,7 +60,7 @@ Cette intégration permet d'utiliser **DevExtreme DataGrid** (v25.1) à la place
 - ✅ Conversion filtres DevExtreme → Axelor
 - ✅ Tous les opérateurs (=, !=, >, <, like, between, etc.)
 
-**Fichiers** : `DxGridInner.hooks.ts`, `dx-filter-converter.ts`
+**Fichiers** : `DxGrid.hooks.ts`, `dx-filter-converter.ts`
 
 #### 3. Sélection (8/8)
 - ✅ Checkboxes dans colonne fixe
@@ -99,7 +99,7 @@ Cette intégration permet d'utiliser **DevExtreme DataGrid** (v25.1) à la place
 - ✅ Classes CSS Axelor via `legacyClassNames()`
 - ✅ Suppression alternance pour hilites background
 
-**Fichiers** : `DxGridInner.tsx:374-427`
+**Fichiers** : `DxGrid.tsx:374-427`
 
 **Exemple** :
 ```xml
@@ -117,7 +117,7 @@ Cette intégration permet d'utiliser **DevExtreme DataGrid** (v25.1) à la place
 - ✅ Context formAtom par ligne
 - ✅ Refresh après action
 
-**Fichiers** : `StandardColumn.tsx`, `DxGridInner.tsx:134-138`
+**Fichiers** : `StandardColumn.tsx`, `DxGrid.tsx:134-138`
 
 #### 7. Colonnes système (3/3)
 - ✅ **$$select** : Checkbox ou undo icon
@@ -131,7 +131,7 @@ Cette intégration permet d'utiliser **DevExtreme DataGrid** (v25.1) à la place
 - ✅ Largeur minimum (100px par défaut)
 - ✅ **Ordre des colonnes via visibleIndex** : Persistance complète du réordonnancement
 
-**Fichiers** : `customize.tsx`, `DxGridInner.hooks.ts:297-312`
+**Fichiers** : `customize.tsx`, `DxGrid.hooks.ts:297-312`
 
 **Détails** : `useHandleOptionChanged` capture les changements d'ordre de colonnes via `visibleIndex` et les sauvegarde dans `gridState.columns[]`. Le hook détecte les modifications en comparant tous les attributs (name, width, visible, visibleIndex, groupIndex) pour déclencher la sauvegarde uniquement si nécessaire.
 
@@ -149,7 +149,7 @@ Cette intégration permet d'utiliser **DevExtreme DataGrid** (v25.1) à la place
 - ✅ Escape pour annuler
 - ✅ Arrow keys pour navigation avec focus
 
-**Fichiers** : `DxGridInner.hooks.ts:325-418`
+**Fichiers** : `DxGrid.hooks.ts:325-418`
 
 #### 11. Recherche (3/3)
 - ✅ SearchPanel UI
@@ -171,7 +171,7 @@ Cette intégration permet d'utiliser **DevExtreme DataGrid** (v25.1) à la place
 
 **Workaround** : Définir `groupBy` directement dans la vue XML avec `updateView()`.
 
-**Fichiers** : `DxGridInner.tsx:312-318, 669`, `DxGridInner.hooks.ts:73-77`
+**Fichiers** : `DxGrid.tsx:312-318, 669`, `DxGrid.hooks.ts:73-77`
 
 #### 2. Expandable / Tree-Grid (2/7)
 - ✅ Structure MasterDetail DevExtreme en place
@@ -184,14 +184,14 @@ Cette intégration permet d'utiliser **DevExtreme DataGrid** (v25.1) à la place
 
 **État actuel** : Composant `MasterDetailRenderer` retourne un placeholder.
 
-**Fichiers** : `DxGridInner.tsx:711-768`
+**Fichiers** : `DxGrid.tsx:711-768`
 
 #### 3. Pagination (2/2)
 - ✅ Gérée par Axelor parent (externe à DevExtreme)
 - ✅ Conversion offset/limit depuis skip/take
 - ⚠️ **DevExtreme Paging désactivé** (Paging.enabled: false)
 
-**Fichiers** : `DxGridInner.tsx:672`, `createDxDataSource.ts:75-80`
+**Fichiers** : `DxGrid.tsx:672`, `createDxDataSource.ts:75-80`
 
 ### ❌ Fonctionnalités non implémentées (8)
 
@@ -244,8 +244,8 @@ Cette intégration permet d'utiliser **DevExtreme DataGrid** (v25.1) à la place
 
 ```
 dx-grid/
-├── DxGridInner.tsx (769 lignes)          # Composant principal
-├── DxGridInner.hooks.ts (418 lignes)     # Hooks (colonnes, tri, filtres)
+├── DxGrid.tsx (769 lignes)          # Composant principal
+├── DxGrid.hooks.ts (418 lignes)     # Hooks (colonnes, tri, filtres)
 ├── createDxDataSource.ts (191 lignes)    # Bridge DevExtreme ↔ Axelor
 ├── dx-filter-converter.ts (159 lignes)   # Conversion filtres
 ├── dx-grid-utils.ts (263 lignes)         # Utilitaires (IDs, types, format)
@@ -267,9 +267,9 @@ dx-grid/
 ```
 Vue XML (css="dx-grid")
     ↓
-GridView détecte → Active DxGridInner
+GridView détecte → Active DxGrid
     ↓
-DxGridInner crée CustomStore
+DxGrid crée CustomStore
     ↓
 DevExtreme DataGrid appelle CustomStore.load()
     ↓
@@ -285,7 +285,7 @@ Rendu avec colonnes + interactions
 ### Communication avec backend
 
 ```typescript
-DxGridInner
+DxGrid
     ↓
 CustomStore (DevExtreme)
     ├─ load(options) → search avec tri/filtres
@@ -308,7 +308,7 @@ Backend Axelor
 2. **repaintChangesOnly** : DevExtreme ne re-peint que les changements
 3. **useMemo** : Mémoïsation des colonnes, datasource, groupByFields
 4. **formAtom par ligne** : Édition isolée via useFormHandlers()
-5. **React.memo** : DxGridInner mémoïsé
+5. **React.memo** : DxGrid mémoïsé
 6. **Lazy initialization** : CustomStore créé une seule fois
 7. **Standard scrolling** : Suffisant pour pages de 50 lignes
 
@@ -401,8 +401,8 @@ useEffect(() => {
 - Ajout de `visibleIndex` à la comparaison `hasChanges` pour détecter les modifications d'ordre
 
 **Fichiers modifiés** :
-- `DxGridInner.hooks.ts:297` - Ajout `visibleIndex: dxCol.visibleIndex`
-- `DxGridInner.hooks.ts:312` - Ajout `oldCol.visibleIndex !== newCol.visibleIndex`
+- `DxGrid.hooks.ts:297` - Ajout `visibleIndex: dxCol.visibleIndex`
+- `DxGrid.hooks.ts:312` - Ajout `oldCol.visibleIndex !== newCol.visibleIndex`
 
 **Code** :
 ```typescript
@@ -553,7 +553,7 @@ dxDownloadLogs()   // Télécharger logs.json
 ```
 
 ### Logs disponibles
-- `[DxGridInner]` : Lifecycle, searchOptions, grouping
+- `[DxGrid]` : Lifecycle, searchOptions, grouping
 - `[customize]` : Personnalisation, sauvegarde groupBy
 - `[saveView]` : Appels API de sauvegarde
 - `[DxDataSource]` : Chargement données (désactivé par défaut)

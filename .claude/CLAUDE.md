@@ -823,37 +823,39 @@ The file has been unexpectedly modified since you last read it
 - Ne pas réessayer `Edit` en boucle (Vite continuera à modifier le fichier)
 - Ne pas demander à l'utilisateur d'arrêter Vite (perte de temps)
 
-### ✅ La technique radicale (rename + rewrite)
+### ✅ La technique efficace (rename → edit → rename)
 
-1. **Lire le fichier complet** avec `Read`
-2. **Renommer le fichier** en `.back` avec `Bash` (mv ou rename)
-3. **Écrire le nouveau fichier** avec `Write` (inclut les modifications)
-4. **Supprimer le backup** avec `Bash` (rm)
+1. **Renommer le fichier** en `.back` avec `Bash` (mv)
+2. **Éditer le fichier .back** avec `Edit` (Vite ne surveille pas les .back)
+3. **Renommer en original** avec `Bash` (mv)
 
 ### Exemple complet
 
 ```typescript
-// 1. Lire le fichier complet
-Read({ file_path: "C:/path/to/DxGrid.tsx" })
-
-// 2. Renommer en .back pour éviter les conflits
+// 1. Renommer en .back pour sortir de la surveillance Vite
 Bash({ command: 'mv "C:/path/to/DxGrid.tsx" "C:/path/to/DxGrid.tsx.back"' })
 
-// 3. Écrire le nouveau fichier avec les modifications
-Write({
-  file_path: "C:/path/to/DxGrid.tsx",
-  content: `// Contenu complet du fichier avec les modifications...`
+// 2. Éditer le fichier .back normalement (pas de conflit car Vite ne le surveille pas)
+Edit({
+  file_path: "C:/path/to/DxGrid.tsx.back",
+  old_string: "ancien code",
+  new_string: "nouveau code"
 })
 
-// 4. Supprimer le backup
-Bash({ command: 'rm "C:/path/to/DxGrid.tsx.back"' })
+// 3. Renommer en original
+Bash({ command: 'mv "C:/path/to/DxGrid.tsx.back" "C:/path/to/DxGrid.tsx"' })
 ```
 
 ### Pourquoi ça fonctionne ?
 
-- `mv` retire le fichier original de la surveillance de Vite
-- `Write` crée un nouveau fichier sans conflit
-- Vite détecte le nouveau fichier et fait un HMR update propre
+- Le fichier `.back` n'est pas surveillé par Vite (pas d'extension `.ts`/`.tsx`)
+- `Edit` fonctionne normalement sur le `.back` sans conflit
+- Le `mv` final déclenche un HMR update propre
+
+### ⚠️ IMPORTANT : Ne pas réécrire tout le fichier
+
+La technique précédente (Read → Write) est **lente** car elle nécessite de réécrire tout le fichier.
+Avec rename → edit → rename, on édite uniquement la partie modifiée, c'est beaucoup plus rapide.
 
 ### Quand l'utiliser ?
 

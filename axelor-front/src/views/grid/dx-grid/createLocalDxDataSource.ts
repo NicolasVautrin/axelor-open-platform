@@ -1,7 +1,7 @@
 import CustomStore from "devextreme/data/custom_store";
 import DataSource from "devextreme/data/data_source";
 import { DataRecord } from "@/services/client/data.types";
-import { dxLog } from "@/utils/dev-tools";
+// dxLog removed - using console.log instead
 import { enableDataSourceDebug } from "./dx-grid-debug";
 import { GridRow } from "@axelor/ui/grid";
 import { getDefaultStore } from "jotai";
@@ -41,7 +41,7 @@ export function createLocalDxDataSource(
   editingRowFormAtomRef?: React.MutableRefObject<any>,
   editingRowStoreRef?: React.MutableRefObject<any>  // ✅ FIX DevExtreme v22: Store dédié
 ) {
-  dxLog("[LocalDxDataSource] Creating with", records.length, "records");
+  console.log("[LocalDxDataSource] Creating with", records.length, "records");
 
   const localStore = new CustomStore({
     key: "id",
@@ -51,7 +51,7 @@ export function createLocalDxDataSource(
      * Pas d'appel serveur - DevExtreme gère le tri/filtrage côté client
      */
     load: async () => {
-      dxLog("[LocalDxDataSource] load() called - returning local records");
+      console.log("[LocalDxDataSource] load() called - returning local records");
 
       try {
         // Cloner les records pour éviter les problèmes d'immutabilité
@@ -69,14 +69,14 @@ export function createLocalDxDataSource(
      * Lire un enregistrement par sa clé depuis l'array local
      */
     byKey: async (key) => {
-      dxLog("[LocalDxDataSource] byKey called with key:", key);
+      console.log("[LocalDxDataSource] byKey called with key:", key);
 
       try {
         const record = records.find((r) => r.id === key);
         if (!record) {
           throw new Error(`Record with id ${key} not found`);
         }
-        dxLog("[LocalDxDataSource] byKey result:", record);
+        console.log("[LocalDxDataSource] byKey result:", record);
         return JSON.parse(JSON.stringify(record));
       } catch (error) {
         console.error("[LocalDxDataSource] Error reading record:", error);
@@ -88,7 +88,7 @@ export function createLocalDxDataSource(
      * Insérer un nouvel enregistrement (nouveau record dans OneToMany)
      */
     insert: async (values) => {
-      dxLog("[LocalDxDataSource] insert called with DevExtreme values:", values);
+      console.log("[LocalDxDataSource] insert called with DevExtreme values:", values);
 
       try {
         if (!handlers.onSave) {
@@ -105,12 +105,12 @@ export function createLocalDxDataSource(
           const formState = store.get(editingRowFormAtomRef.current) as any;
           if (formState?.record) {
             recordToSave = formState.record;
-            dxLog("[LocalDxDataSource] Using values from formAtom instead of DevExtreme:", recordToSave);
+            console.log("[LocalDxDataSource] Using values from formAtom instead of DevExtreme:", recordToSave);
           }
         }
 
         const result = await handlers.onSave(recordToSave);
-        dxLog("[LocalDxDataSource] insert result:", result);
+        console.log("[LocalDxDataSource] insert result:", result);
         return result;
       } catch (error) {
         console.error("[LocalDxDataSource] Error inserting record:", error);
@@ -122,7 +122,7 @@ export function createLocalDxDataSource(
      * Mettre à jour un enregistrement existant (édition inline dans OneToMany)
      */
     update: async (key, values) => {
-      dxLog("[LocalDxDataSource] update called with key:", key, "DevExtreme values:", values);
+      console.log("[LocalDxDataSource] update called with key:", key, "DevExtreme values:", values);
 
       try {
         if (!handlers.onUpdate) {
@@ -135,7 +135,7 @@ export function createLocalDxDataSource(
         if (!originalRecord) {
           throw new Error(`Record with id ${key} not found`);
         }
-        dxLog("[LocalDxDataSource] Original record found:", originalRecord);
+        console.log("[LocalDxDataSource] Original record found:", originalRecord);
 
         // ✅ SOLUTION : Lire les valeurs depuis le formAtom au lieu des params DevExtreme
         // DevExtreme ne peut pas extraire les valeurs des widgets Axelor custom (avec dataRowRender)
@@ -146,16 +146,16 @@ export function createLocalDxDataSource(
           const formState = store.get(editingRowFormAtomRef.current) as any;
           if (formState?.record) {
             valuesToMerge = formState.record;
-            dxLog("[LocalDxDataSource] Using values from formAtom instead of DevExtreme:", valuesToMerge);
+            console.log("[LocalDxDataSource] Using values from formAtom instead of DevExtreme:", valuesToMerge);
           }
         }
 
         // Fusionner les modifications avec le record original
         const recordToSave = { ...originalRecord, ...valuesToMerge };
-        dxLog("[LocalDxDataSource] Merged record to save:", recordToSave);
+        console.log("[LocalDxDataSource] Merged record to save:", recordToSave);
 
         const result = await handlers.onUpdate(recordToSave);
-        dxLog("[LocalDxDataSource] update result:", result);
+        console.log("[LocalDxDataSource] update result:", result);
 
         // Retourner une copie mutable
         return JSON.parse(JSON.stringify(result));
@@ -169,7 +169,7 @@ export function createLocalDxDataSource(
      * Supprimer un enregistrement
      */
     remove: async (key) => {
-      dxLog("[LocalDxDataSource] remove called with key:", key);
+      console.log("[LocalDxDataSource] remove called with key:", key);
 
       try {
         if (!handlers.onDelete) {
@@ -182,11 +182,11 @@ export function createLocalDxDataSource(
         if (!record) {
           throw new Error(`Record with id ${key} not found`);
         }
-        dxLog("[LocalDxDataSource] Record to delete:", record);
+        console.log("[LocalDxDataSource] Record to delete:", record);
 
         // Appeler le handler avec un array (OneToMany.onDelete prend un array)
         await handlers.onDelete([record]);
-        dxLog("[LocalDxDataSource] Record deleted successfully");
+        console.log("[LocalDxDataSource] Record deleted successfully");
       } catch (error) {
         console.error("[LocalDxDataSource] Error removing record:", error);
         throw error;
@@ -213,7 +213,7 @@ export function createLocalDxDataSource(
       const selectedKeys = store.get(selectedRowsListAtom);
       const rows = getRows();
 
-      dxLog("[LocalDxDataSource] Selection changed - selectedKeys:", selectedKeys, "rows count:", rows.length);
+      console.log("[LocalDxDataSource] Selection changed - selectedKeys:", selectedKeys, "rows count:", rows.length);
 
       // Convertir les keys en indices dans state.rows
       const selectedIndices: number[] = [];
@@ -224,7 +224,7 @@ export function createLocalDxDataSource(
         }
       });
 
-      dxLog("[LocalDxDataSource] Converted to indices:", selectedIndices);
+      console.log("[LocalDxDataSource] Converted to indices:", selectedIndices);
 
       // Mettre à jour state.selectedRows pour la toolbar
       setState((draft) => {

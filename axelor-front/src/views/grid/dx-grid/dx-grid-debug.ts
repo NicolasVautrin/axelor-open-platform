@@ -1,5 +1,5 @@
 import React from "react";
-import { dxLog } from "@/utils/dev-tools";
+// dxLog removed - using console.log instead
 import { getGridInstance } from "./dx-grid-utils";
 import type { DataGrid } from "devextreme-react/data-grid";
 import type DataSource from "devextreme/data/data_source";
@@ -30,10 +30,10 @@ export function enableDxGridDebug(dataGridRef: React.RefObject<React.ElementRef<
 
   // 1. Vérifier l'ordre des controllers
   const controllerNames = Object.keys((gridInstance as any)._controllers);
-  dxLog("[MONKEY PATCH] Controllers order:", controllerNames);
+  console.log("[MONKEY PATCH] Controllers order:", controllerNames);
   const dataIndex = controllerNames.indexOf('data');
   const editingIndex = controllerNames.indexOf('editing');
-  dxLog(`[MONKEY PATCH] data at index ${dataIndex}, editing at index ${editingIndex}`);
+  console.log(`[MONKEY PATCH] data at index ${dataIndex}, editing at index ${editingIndex}`);
 
   // 2. Variable pour capturer les derniers arguments de optionChanged
   let lastOptionChangedArgs: any = null;
@@ -51,11 +51,11 @@ export function enableDxGridDebug(dataGridRef: React.RefObject<React.ElementRef<
 
   editingController.optionChanged = function(args: any) {
     if (args.name === 'editing') {
-      dxLog(`[PATCH EDITING] optionChanged - fullName=${args.fullName}, handled=${args.handled}`);
+      console.log(`[PATCH EDITING] optionChanged - fullName=${args.fullName}, handled=${args.handled}`);
     }
     const result = original_editing_optionChanged(args);
     if (args.name === 'editing') {
-      dxLog(`[PATCH EDITING] optionChanged done - handled=${args.handled}`);
+      console.log(`[PATCH EDITING] optionChanged done - handled=${args.handled}`);
     }
     return result;
   };
@@ -65,12 +65,12 @@ export function enableDxGridDebug(dataGridRef: React.RefObject<React.ElementRef<
 
   dataController._refreshDataSource = function(...args: any[]) {
     const stack = new Error().stack;
-    dxLog("[PATCH] _refreshDataSource called - CAUSED BY optionChanged:", lastOptionChangedArgs);
-    dxLog("[PATCH] _refreshDataSource - STACK:", stack);
+    console.log("[PATCH] _refreshDataSource called - CAUSED BY optionChanged:", lastOptionChangedArgs);
+    console.log("[PATCH] _refreshDataSource - STACK:", stack);
     return original_refreshDataSource(...args);
   };
 
-  dxLog("[PATCH] optionChanged + _refreshDataSource patched successfully");
+  console.log("[PATCH] optionChanged + _refreshDataSource patched successfully");
 
   // Retourner une fonction cleanup
   return () => {
@@ -95,13 +95,13 @@ export function enableDataSourceDebug(dataSource: DataSource) {
 
   dataSource.load = function(...args: any[]) {
     const stack = new Error().stack;
-    dxLog("[DataSource] load() called MONKEY PATCH STACK:", stack);
+    console.log("[DataSource] load() called MONKEY PATCH STACK:", stack);
     return originalLoad.apply(this, args as any);
   };
 
   dataSource.reload = function(...args: any[]) {
     const stack = new Error().stack;
-    dxLog("[DataSource] reload() called MONKEY PATCH STACK:", stack);
+    console.log("[DataSource] reload() called MONKEY PATCH STACK:", stack);
     return originalReload.apply(this, args as any);
   };
 
