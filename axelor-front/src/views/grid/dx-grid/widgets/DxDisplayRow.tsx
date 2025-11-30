@@ -4,7 +4,7 @@ import { DxDisplayCell } from "./DxDisplayCell";
 import type { GridView } from "@/services/client/meta.types";
 import { getDxCellValue, getGridInstance } from "../dx-grid-utils";
 import { DxCell } from "./DxCell";
-import { calculateFixedOffsets } from "./columnFixingUtils";
+import { calculateFixedOffsets } from "./cellStickyUtils";
 
 interface DxDisplayRowProps {
   /** Données de la ligne (rowInfo.row) */
@@ -77,8 +77,18 @@ export const DxDisplayRow = React.memo(function DxDisplayRow(props: DxDisplayRow
         // ✅ FIX: Utiliser l'index pour garantir l'unicité des clés
         // DevExtreme peut inclure plusieurs fois la même colonne quand le groupement est actif
         const key = `${col.dataField || 'col'}_${index}`;
-        const leftOffset = leftOffsets.get(col.dataField || col.name || col.caption);
-        const rightOffset = rightOffsets.get(col.dataField || col.name || col.caption);
+
+        // ✅ FIX: Pour les colonnes expand, utiliser l'index global (comme dans calculateFixedOffsets)
+        let leftOffset: number | undefined;
+        let rightOffset: number | undefined;
+
+        if (isExpandColumn) {
+          // Les colonnes expand utilisent leur index global dans l'array columns
+          leftOffset = leftOffsets.get(`expand_${index}`);
+        } else {
+          leftOffset = leftOffsets.get(col.dataField || col.name || col.caption);
+          rightOffset = rightOffsets.get(col.dataField || col.name || col.caption);
+        }
 
         // Lookup O(1) dans la Map des props de colonnes
         const colProps = col.dataField ? columnPropsMap.get(col.dataField) : undefined;

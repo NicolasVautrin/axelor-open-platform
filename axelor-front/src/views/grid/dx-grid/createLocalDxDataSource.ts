@@ -1,7 +1,6 @@
 import CustomStore from "devextreme/data/custom_store";
 import DataSource from "devextreme/data/data_source";
 import { DataRecord } from "@/services/client/data.types";
-// dxLog removed - using console.log instead
 import { enableDataSourceDebug } from "./dx-grid-debug";
 import { GridRow } from "@axelor/ui/grid";
 import { getDefaultStore } from "jotai";
@@ -39,22 +38,16 @@ export function createLocalDxDataSource(
   handlers: LocalDataSourceHandlers = {},
   selectionSync?: SelectionSyncOptions,
   editingRowFormAtomRef?: React.MutableRefObject<any>,
-  editingRowStoreRef?: React.MutableRefObject<any>  // ✅ FIX DevExtreme v22: Store dédié
+  editingRowStoreRef?: React.MutableRefObject<any>
 ) {
-  console.log("[LocalDxDataSource] Creating with", records.length, "records");
-
   const localStore = new CustomStore({
     key: "id",
 
     /**
      * Charger les données depuis l'array local
-     * Pas d'appel serveur - DevExtreme gère le tri/filtrage côté client
      */
     load: async () => {
-      console.log("[LocalDxDataSource] load() called - returning local records");
-
       try {
-        // Cloner les records pour éviter les problèmes d'immutabilité
         return {
           data: JSON.parse(JSON.stringify(records)),
           totalCount: records.length,
@@ -69,14 +62,11 @@ export function createLocalDxDataSource(
      * Lire un enregistrement par sa clé depuis l'array local
      */
     byKey: async (key) => {
-      console.log("[LocalDxDataSource] byKey called with key:", key);
-
       try {
         const record = records.find((r) => r.id === key);
         if (!record) {
           throw new Error(`Record with id ${key} not found`);
         }
-        console.log("[LocalDxDataSource] byKey result:", record);
         return JSON.parse(JSON.stringify(record));
       } catch (error) {
         console.error("[LocalDxDataSource] Error reading record:", error);
@@ -85,32 +75,26 @@ export function createLocalDxDataSource(
     },
 
     /**
-     * Insérer un nouvel enregistrement (nouveau record dans OneToMany)
+     * Insérer un nouvel enregistrement
      */
     insert: async (values) => {
-      console.log("[LocalDxDataSource] insert called with DevExtreme values:", values);
-
       try {
         if (!handlers.onSave) {
           console.warn("[LocalDxDataSource] onSave handler not provided");
           return values;
         }
 
-        // ✅ SOLUTION : Lire les valeurs depuis le formAtom au lieu des params DevExtreme
-        // DevExtreme ne peut pas extraire les valeurs des widgets Axelor custom (avec dataRowRender)
-        // ✅ FIX DevExtreme v22: Utiliser le store DÉDIÉ passé par DxEditRow
+        // Lire les valeurs depuis le formAtom au lieu des params DevExtreme
         let recordToSave = values;
         if (editingRowFormAtomRef?.current) {
           const store = editingRowStoreRef?.current || getDefaultStore();
           const formState = store.get(editingRowFormAtomRef.current) as any;
           if (formState?.record) {
             recordToSave = formState.record;
-            console.log("[LocalDxDataSource] Using values from formAtom instead of DevExtreme:", recordToSave);
           }
         }
 
         const result = await handlers.onSave(recordToSave);
-        console.log("[LocalDxDataSource] insert result:", result);
         return result;
       } catch (error) {
         console.error("[LocalDxDataSource] Error inserting record:", error);
@@ -119,45 +103,33 @@ export function createLocalDxDataSource(
     },
 
     /**
-     * Mettre à jour un enregistrement existant (édition inline dans OneToMany)
+     * Mettre à jour un enregistrement existant
      */
     update: async (key, values) => {
-      console.log("[LocalDxDataSource] update called with key:", key, "DevExtreme values:", values);
-
       try {
         if (!handlers.onUpdate) {
           console.warn("[LocalDxDataSource] onUpdate handler not provided");
           return values;
         }
 
-        // Récupérer le record original
         const originalRecord = records.find((r) => r.id === key);
         if (!originalRecord) {
           throw new Error(`Record with id ${key} not found`);
         }
-        console.log("[LocalDxDataSource] Original record found:", originalRecord);
 
-        // ✅ SOLUTION : Lire les valeurs depuis le formAtom au lieu des params DevExtreme
-        // DevExtreme ne peut pas extraire les valeurs des widgets Axelor custom (avec dataRowRender)
-        // ✅ FIX DevExtreme v22: Utiliser le store DÉDIÉ passé par DxEditRow
+        // Lire les valeurs depuis le formAtom au lieu des params DevExtreme
         let valuesToMerge = values;
         if (editingRowFormAtomRef?.current) {
           const store = editingRowStoreRef?.current || getDefaultStore();
           const formState = store.get(editingRowFormAtomRef.current) as any;
           if (formState?.record) {
             valuesToMerge = formState.record;
-            console.log("[LocalDxDataSource] Using values from formAtom instead of DevExtreme:", valuesToMerge);
           }
         }
 
-        // Fusionner les modifications avec le record original
         const recordToSave = { ...originalRecord, ...valuesToMerge };
-        console.log("[LocalDxDataSource] Merged record to save:", recordToSave);
-
         const result = await handlers.onUpdate(recordToSave);
-        console.log("[LocalDxDataSource] update result:", result);
 
-        // Retourner une copie mutable
         return JSON.parse(JSON.stringify(result));
       } catch (error) {
         console.error("[LocalDxDataSource] Error updating record:", error);
@@ -169,24 +141,18 @@ export function createLocalDxDataSource(
      * Supprimer un enregistrement
      */
     remove: async (key) => {
-      console.log("[LocalDxDataSource] remove called with key:", key);
-
       try {
         if (!handlers.onDelete) {
           console.warn("[LocalDxDataSource] onDelete handler not provided");
           return;
         }
 
-        // Récupérer le record à supprimer
         const record = records.find((r) => r.id === key);
         if (!record) {
           throw new Error(`Record with id ${key} not found`);
         }
-        console.log("[LocalDxDataSource] Record to delete:", record);
 
-        // Appeler le handler avec un array (OneToMany.onDelete prend un array)
         await handlers.onDelete([record]);
-        console.log("[LocalDxDataSource] Record deleted successfully");
       } catch (error) {
         console.error("[LocalDxDataSource] Error removing record:", error);
         throw error;
@@ -194,28 +160,22 @@ export function createLocalDxDataSource(
     },
   });
 
-  // Créer le DataSource DevExtreme avec le localStore
   const dataSource = new DataSource({
     store: localStore,
-    reshapeOnPush: true, // Permettre les mises à jour push
+    reshapeOnPush: true,
   });
 
-  // Monkey patches de diagnostic (activables via dx-grid-debug.ts)
   enableDataSourceDebug(dataSource);
 
-  // Synchroniser la sélection (atoms) avec le GridState (state.selectedRows)
+  // Synchroniser la sélection avec le GridState
   if (selectionSync) {
     const { setState, getRows } = selectionSync;
     const store = getDefaultStore();
 
-    // S'abonner aux changements de sélection via l'atom
     const unsubscribe = store.sub(selectedRowsListAtom, () => {
       const selectedKeys = store.get(selectedRowsListAtom);
       const rows = getRows();
 
-      console.log("[LocalDxDataSource] Selection changed - selectedKeys:", selectedKeys, "rows count:", rows.length);
-
-      // Convertir les keys en indices dans state.rows
       const selectedIndices: number[] = [];
       selectedKeys.forEach((key: any) => {
         const index = rows.findIndex((row) => row.record?.id === key);
@@ -224,15 +184,11 @@ export function createLocalDxDataSource(
         }
       });
 
-      console.log("[LocalDxDataSource] Converted to indices:", selectedIndices);
-
-      // Mettre à jour state.selectedRows pour la toolbar
       setState((draft) => {
         draft.selectedRows = selectedIndices.length > 0 ? selectedIndices : null;
       });
     });
 
-    // Attacher le unsubscribe au dataSource pour cleanup
     (dataSource as any)._selectionUnsubscribe = unsubscribe;
   }
 

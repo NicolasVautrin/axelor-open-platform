@@ -8,7 +8,7 @@ import { useFormHandlers } from "@/views/form/builder/form";
 import { FormScope, ActionDataHandler } from "@/views/form/builder/scope";
 import { useAsyncEffect } from "@/hooks/use-async-effect";
 import { DxCell } from "./DxCell";
-import { calculateFixedOffsets } from "./columnFixingUtils";
+import { calculateFixedOffsets } from "./cellStickyUtils";
 
 interface DxEditRowProps {
   /** ✅ FIX MULTI-GRID: ID unique de la grille pour filtrer les clickAway events */

@@ -28,7 +28,6 @@ import frMessages from "devextreme/localization/messages/fr.json";
 import { ViewProps } from "@/views/types";
 import { SearchOptions } from "@/services/client/data";
 import { GridView, Field } from "@/services/client/meta.types";
-// dxLog removed - using console.log instead
 import { getStandardColumnProps } from "./widgets/StandardColumn";
 import { getEditColumnProps } from "./widgets/EditColumn";
 import { getSelectColumnProps, SelectAllHeader } from "./widgets/SelectColumn";
@@ -63,6 +62,7 @@ import { createLocalDxDataSource } from "./createLocalDxDataSource";
 import { convertDxFilterToAxelor } from "./dx-filter-converter";
 import { enableDxGridDebug } from "./dx-grid-debug";
 import { useDxRow } from "./widgets/DxRow";
+import { fixHeaderStickyPositions, setupGroupRowScrollListener, ScrollListenerCleanup } from "./widgets/cellStickyUtils";
 import { useGridState, parseOrderBy, getSortBy } from "../builder/utils";
 import { useCustomizePopup } from "../builder/customize";
 
@@ -194,11 +194,9 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
   const initialSortBy = useMemo(() => getSortBy(parseOrderBy(view.orderBy)), [view.orderBy]);
   const currentSortByRef = useRef<string[] | undefined>(initialSortBy);
 
-  // ✅ FIX: useRef ne met pas à jour après le premier render
+  // Sync ref après le premier render
   useEffect(() => {
-    console.log("[DxGrid] view.orderBy:", view.orderBy, "-> initialSortBy:", initialSortBy);
     if (initialSortBy && initialSortBy.length > 0 && !currentSortByRef.current) {
-      console.log("[DxGrid] Syncing currentSortByRef with initialSortBy:", initialSortBy);
       currentSortByRef.current = initialSortBy;
     }
   }, [initialSortBy]);
@@ -503,7 +501,7 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
   // Fonction pour déclencher une recherche avec tri/filtre
   const triggerSearch = useTriggerSearch({ dataStore, fieldsToFetch });
 
-  // ✅ FIX COLUMN WIDTH SYNC: Synchroniser les largeurs headers→rowsview
+  // ✅ FIX COLUMN WIDTH SYNC: Synchroniser les largeurs entre headers et rowsview
   // Utilisé par handleContentReady et handleOptionChanged (lors du resize)
   const syncColumnWidths = useCallback((gridInstance: any) => {
     const container = gridInstance?.element();
@@ -516,32 +514,49 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
 
     const headersCols = Array.from(headersTable.querySelectorAll('colgroup col')) as HTMLElement[];
     const rowsviewCols = Array.from(rowsviewTable.querySelectorAll('colgroup col')) as HTMLElement[];
+    const headerTds = Array.from(headersTable.querySelectorAll('.dx-header-row td')) as HTMLElement[];
 
     if (headersCols.length === 0 || rowsviewCols.length !== headersCols.length) return;
 
     // Récupérer les colonnes via l'API DevExtreme pour identifier système vs données
     const visibleColumns = gridInstance.getVisibleColumns();
 
-    // Synchroniser chaque colonne
+    // Calculer la largeur totale et synchroniser
+    let totalWidth = 0;
     visibleColumns.forEach((col: any, index: number) => {
       if (index >= headersCols.length) return;
 
       const headerCol = headersCols[index];
       const rowsviewCol = rowsviewCols[index];
+      const headerTd = headerTds[index];
 
       const isSystem = col.command || col.type === 'groupExpand' ||
           (col.dataField && col.dataField.startsWith('$$'));
 
       if (isSystem) {
-        // Colonnes système : forcer à 30px
+        // Colonnes système : forcer à 30px partout
         headerCol.style.width = '30px';
         rowsviewCol.style.width = '30px';
+        if (headerTd) {
+          headerTd.style.width = '30px';
+          headerTd.style.maxWidth = '30px';
+        }
+        totalWidth += 30;
       } else {
-        // Colonnes de données : copier la largeur computed du header vers rowsview
-        const computedWidth = headerCol.offsetWidth || parseInt(headerCol.style.width) || 100;
+        // Colonnes de données : utiliser la largeur calculée par DevExtreme (offsetWidth)
+        // ou la largeur du style si déjà définie, sinon 100px par défaut
+        const computedWidth = headerCol.offsetWidth || parseInt(rowsviewCol.style.width) || 100;
+        headerCol.style.width = `${computedWidth}px`;
         rowsviewCol.style.width = `${computedWidth}px`;
+        totalWidth += computedWidth;
       }
     });
+
+    // Forcer table-layout: fixed ET la largeur totale
+    headersTable.style.tableLayout = 'fixed';
+    headersTable.style.width = `${totalWidth}px`;
+    rowsviewTable.style.tableLayout = 'fixed';
+    rowsviewTable.style.width = `${totalWidth}px`;
   }, []);
 
   // Intercepter les changements de tri et de groupement
@@ -553,7 +568,7 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
     setGridState,
     currentSortByRef,
     dxDataSource,
-    onSyncColumnWidths: hasGrouping ? syncColumnWidths : undefined  // Seulement si grouping actif
+    onSyncColumnWidths: syncColumnWidths  // Toujours sync pour forcer colonnes système à 30px
   });
 
   // Personnaliser le menu contextuel des colonnes
@@ -728,9 +743,7 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
   const handleUngroup = useCallback((dataField: string) => {
     const gridInstance = getGridInstance(dataGridRef);
     if (gridInstance) {
-      // Retirer le groupIndex de la colonne
       gridInstance.columnOption(dataField, 'groupIndex', undefined);
-      console.log('[DxGrid] Ungrouped column:', dataField);
     }
   }, []);
 
@@ -1047,11 +1060,30 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
     return () => clearInterval(interval);
   }, []); // Pas de dépendances car on utilise un ref
 
-  // handleContentReady utilise syncColumnWidths défini plus haut
+  // handleContentReady : sync colonnes + sticky headers + scroll listener pour group rows
   const handleContentReady = useCallback((e: any) => {
-    if (!hasGrouping) return;
-    syncColumnWidths(e.component);
-  }, [hasGrouping, syncColumnWidths]);
+    const gridInstance = e.component;
+
+    // Sync column widths (toujours, pour forcer les colonnes système à 30px)
+    // Sans grouping, columnAutoWidth distribue l'espace et ignore maxWidth
+    syncColumnWidths(gridInstance);
+
+    const gridElement = gridInstance?.element();
+    if (!gridElement) return;
+
+    // Corriger les positions left des headers sticky (select/edit) quand expand columns présentes
+    const visibleColumns = gridInstance.getVisibleColumns();
+    fixHeaderStickyPositions(gridElement, visibleColumns);
+
+    // Nettoyer l'ancien listener s'il existe
+    if (groupRowScrollListenerRef.current) {
+      groupRowScrollListenerRef.current.remove();
+      groupRowScrollListenerRef.current = null;
+    }
+
+    // Configurer le scroll listener pour les group rows sticky
+    groupRowScrollListenerRef.current = setupGroupRowScrollListener(gridElement);
+  }, [syncColumnWidths]);
 
   // Callback pour personnaliser les colonnes AVANT le rendu initial
   // Définit une largeur sur les colonnes expand générées par DevExtreme pour le groupement
@@ -1158,6 +1190,19 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
   // Monkey patches de diagnostic (activables via dx-grid-debug.ts)
   useEffect(() => {
     return enableDxGridDebug(dataGridRef);
+  }, []);
+
+  // Ref pour stocker le listener scroll (éviter les fuites mémoire)
+  const groupRowScrollListenerRef = useRef<ScrollListenerCleanup | null>(null);
+
+  // Cleanup du listener scroll au démontage
+  useEffect(() => {
+    return () => {
+      if (groupRowScrollListenerRef.current) {
+        groupRowScrollListenerRef.current.remove();
+        groupRowScrollListenerRef.current = null;
+      }
+    };
   }, []);
 
   // Hook pour rendre les lignes de la grille DevExtreme

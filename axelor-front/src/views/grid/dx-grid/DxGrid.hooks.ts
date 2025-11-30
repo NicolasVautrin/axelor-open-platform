@@ -10,7 +10,6 @@ import {
   isNewRecord,
 } from "./dx-grid-utils";
 import { convertDxFilterToAxelor } from "./dx-filter-converter";
-// dxLog removed - using console.log instead
 import { getDefaultStore } from "jotai";
 import isEqual from "lodash/isEqual";
 import { useGetErrors, showErrors } from "@/views/form/form";
@@ -51,7 +50,6 @@ export function useDxColumns({ view, fields, groupByFields, gridStateColumns = [
           });
         }
       });
-      console.log("[useDxColumns] Parsed orderBy:", orderBy, "-> sortConfigMap:", Object.fromEntries(sortConfigMap));
     }
 
     return (view.items || [])
@@ -263,12 +261,7 @@ interface UseHandleOptionChangedParams {
  */
 export function useHandleOptionChanged({ setHasGrouping, triggerSearch, setGridState, currentSortByRef, dxDataSource, onSyncColumnWidths }: UseHandleOptionChangedParams) {
   return useCallback((e: any) => {
-    // ✅ DEBUG: Logger les événements importants (exclure hoveredElement qui flood)
-    if (e.name !== "hoveredElement") {
-      console.log("[handleOptionChanged] Event:", e.name, e.fullName, "value:", e.value);
-    }
-
-    // ✅ FIX COLUMN RESIZE: Synchroniser les largeurs headers→rowsview après un resize
+    // FIX COLUMN RESIZE: Synchroniser les largeurs headers→rowsview après un resize
     // Quand une colonne est redimensionnée, DevExtreme met à jour les headers mais pas le rowsview
     // si on a du grouping (à cause de table-layout: fixed avec group rows)
     // Debounce pour éviter trop d'appels pendant le drag
@@ -316,13 +309,11 @@ export function useHandleOptionChanged({ setHasGrouping, triggerSearch, setGridS
       });
 
       if (uniqueSortBy.length > 0) {
-        console.log("[handleOptionChanged] Sort changed, updating ref and reloading dataSource with sortBy:", uniqueSortBy);
-        // ✅ FIX: Mettre à jour la ref (lue par CustomStore.load()) puis recharger
+        // Mettre à jour la ref (lue par CustomStore.load()) puis recharger
         currentSortByRef.current = uniqueSortBy;
         dxDataSource?.reload();
       } else {
         // Aucun tri : effacer le tri
-        console.log("[handleOptionChanged] Sort cleared, reloading dataSource");
         currentSortByRef.current = undefined;
         dxDataSource?.reload();
       }
@@ -984,14 +975,12 @@ async function saveEditingRowAndClose(
     if (hasChanges || isNew) {
       try {
         if (isNew && localOnSave) {
-          console.log(`${logPrefix} Calling localOnSave (isNew=true)`);
           await localOnSave(currentRecord);
         } else if (!isNew && localOnUpdate) {
-          console.log(`${logPrefix} Calling localOnUpdate (hasChanges=true)`);
           await localOnUpdate(currentRecord);
         }
       } catch (error) {
-        console.error(`${logPrefix} Save failed:`, error);
+        console.error("[DxGrid] Save failed:", error);
       }
     }
 
