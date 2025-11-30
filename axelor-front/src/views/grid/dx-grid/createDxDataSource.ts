@@ -29,7 +29,9 @@ export interface SelectionSyncOptions {
 export function createDxDataSource(
   dataStore: DataStore,
   fieldsToFetch: string[],
-  selectionSync?: SelectionSyncOptions
+  selectionSync?: SelectionSyncOptions,
+  editingRowFormAtomRef?: React.MutableRefObject<any>,  // ✅ FIX: Ref vers le formAtom de la ligne en édition
+  editingRowStoreRef?: React.MutableRefObject<any>      // ✅ FIX DevExtreme v22: Store Jotai dédié
 ) {
   const dxGridStore = new CustomStore({
     key: "id",
@@ -139,13 +141,26 @@ export function createDxDataSource(
      * Insérer un nouvel enregistrement
      */
     insert: async (values) => {
-      dxLog("[DxDataSource] insert called with values:", values);
+      dxLog("[DxDataSource] insert called with DevExtreme values:", values);
 
       try {
-        // Supprimer l'ID négatif pour les nouvelles lignes (système Axelor)
-        const { id, ...recordToSave } = values;
+        // ✅ SOLUTION : Lire les valeurs depuis le formAtom au lieu des params DevExtreme
+        // DevExtreme ne peut pas extraire les valeurs des widgets Axelor custom (avec dataRowRender)
+        // ✅ FIX DevExtreme v22: Utiliser le store DÉDIÉ passé par DxEditRow
+        let recordToSave = values;
+        if (editingRowFormAtomRef?.current) {
+          const store = editingRowStoreRef?.current || getDefaultStore();
+          const formState = store.get(editingRowFormAtomRef.current) as any;
+          if (formState?.record && Object.keys(formState.record).length > 0) {
+            recordToSave = formState.record;
+            dxLog("[DxDataSource] Using values from formAtom instead of DevExtreme:", recordToSave);
+          }
+        }
 
-        const result = await dataStore.save(recordToSave, { fields: fieldsToFetch });
+        // Supprimer l'ID négatif pour les nouvelles lignes (système Axelor)
+        const { id, ...dataToSave } = recordToSave;
+
+        const result = await dataStore.save(dataToSave, { fields: fieldsToFetch });
         dxLog("[DxDataSource] insert result:", result);
         return result;
       } catch (error) {
@@ -158,7 +173,7 @@ export function createDxDataSource(
      * Mettre à jour un enregistrement existant
      */
     update: async (key, values) => {
-      dxLog("[DxDataSource] update called with key:", key, "values:", values);
+      dxLog("[DxDataSource] update called with key:", key, "DevExtreme values:", values);
 
       try {
         // Récupérer le record complet d'abord (comme handleSaving le faisait)
@@ -168,8 +183,21 @@ export function createDxDataSource(
         // Cloner l'originalRecord pour éviter les problèmes d'immutabilité
         const clonedOriginal = JSON.parse(JSON.stringify(originalRecord));
 
+        // ✅ SOLUTION : Lire les valeurs depuis le formAtom au lieu des params DevExtreme
+        // DevExtreme ne peut pas extraire les valeurs des widgets Axelor custom (avec dataRowRender)
+        // ✅ FIX DevExtreme v22: Utiliser le store DÉDIÉ passé par DxEditRow
+        let valuesToMerge = values;
+        if (editingRowFormAtomRef?.current) {
+          const store = editingRowStoreRef?.current || getDefaultStore();
+          const formState = store.get(editingRowFormAtomRef.current) as any;
+          if (formState?.record && Object.keys(formState.record).length > 0) {
+            valuesToMerge = formState.record;
+            dxLog("[DxDataSource] Using values from formAtom instead of DevExtreme:", valuesToMerge);
+          }
+        }
+
         // Fusionner les modifications avec le record cloné
-        const recordToSave = { ...clonedOriginal, ...values };
+        const recordToSave = { ...clonedOriginal, ...valuesToMerge };
         dxLog("[DxDataSource] Merged record to save:", recordToSave);
 
         const result = await dataStore.save(recordToSave, { fields: fieldsToFetch });

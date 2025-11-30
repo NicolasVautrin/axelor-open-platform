@@ -169,6 +169,57 @@ export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
     }
   }, [rowKey]); // Re-run quand la ligne change
 
+  /**
+   * Handler pour intercepter Tab/Shift+Tab et naviguer dans la ligne d'édition
+   * Sans ce handler, le focus sort de la ligne vers les filtres de colonnes
+   * car DevExtreme dataRowRender crée un DOM personnalisé que le browser ne gère pas correctement
+   */
+  const handleKeyDown = useMemo(() => {
+    return (e: React.KeyboardEvent<HTMLTableRowElement>) => {
+      if (e.key !== 'Tab') return;
+
+      const row = rowRef.current;
+      if (!row) return;
+
+      // Trouver tous les inputs éditables dans la ligne (dans l'ordre DOM)
+      const editableInputs = Array.from(
+        row.querySelectorAll('input:not([readonly]):not([tabindex="-1"]), select:not([disabled]), textarea:not([readonly])')
+      ) as HTMLElement[];
+
+      if (editableInputs.length === 0) return;
+
+      // Trouver l'input actuellement focusé
+      const activeElement = document.activeElement as HTMLElement;
+      const currentIndex = editableInputs.indexOf(activeElement);
+
+      if (currentIndex === -1) return;
+
+      // Intercepter TOUS les Tab pour empêcher le focus de sortir de la ligne
+      e.preventDefault();
+      e.stopPropagation();
+
+      const isShiftPressed = e.shiftKey;
+      let nextIndex: number;
+
+      if (isShiftPressed) {
+        // Shift+Tab : aller à l'input précédent (boucler si premier)
+        nextIndex = currentIndex === 0 ? editableInputs.length - 1 : currentIndex - 1;
+      } else {
+        // Tab : aller à l'input suivant (boucler si dernier)
+        nextIndex = currentIndex === editableInputs.length - 1 ? 0 : currentIndex + 1;
+      }
+
+      const nextInput = editableInputs[nextIndex];
+      if (nextInput) {
+        nextInput.focus();
+        // Sélectionner le texte si c'est un input texte
+        if (nextInput instanceof HTMLInputElement && (nextInput.type === 'text' || nextInput.type === '')) {
+          nextInput.select();
+        }
+      }
+    };
+  }, []);
+
   // Calculer les offsets pour les colonnes fixées (pour position: sticky)
   const { leftOffsets, rightOffsets } = useMemo(
     () => calculateFixedOffsets(columns),
@@ -189,7 +240,7 @@ export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
   // Si onClickAway est défini, wrapper le <tr> avec ClickAwayListener
   const rowContent = handleClickAway ? (
     <ClickAwayListener onClickAway={handleClickAway}>
-      <tr ref={rowRef} className="dx-row dx-data-row dx-row-lines">
+      <tr ref={rowRef} className="dx-row dx-data-row dx-row-lines" onKeyDown={handleKeyDown}>
         {columns.map((col: any, index: number) => {
           const key = col.dataField || `col_${index}`;
           const leftOffset = leftOffsets.get(col.dataField || col.name || col.caption);
@@ -246,7 +297,7 @@ export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
       </tr>
     </ClickAwayListener>
   ) : (
-    <tr ref={rowRef} className="dx-row dx-data-row dx-row-lines">
+    <tr ref={rowRef} className="dx-row dx-data-row dx-row-lines" onKeyDown={handleKeyDown}>
       {columns.map((col: any, index: number) => {
         const key = col.dataField || `col_${index}`;
         const leftOffset = leftOffsets.get(col.dataField || col.name || col.caption);

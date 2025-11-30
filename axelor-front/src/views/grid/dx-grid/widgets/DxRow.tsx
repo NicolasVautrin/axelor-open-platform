@@ -52,10 +52,17 @@ export function useDxRow({
   editingRowStore,  // ✅ FIX STORE UNIQUE: Store partagé créé au niveau DxGrid
 }: UseDxRowParams) {
   const DxRow = useCallback((rowInfo: any) => {
-    // Si pas de data, ne rien rendre (peut arriver pour des lignes virtuelles ou group rows)
+    // Si pas de data, ne rien rendre (peut arriver pour des lignes virtuelles)
     if (!rowInfo || !rowInfo.data) {
       console.warn('[DxRow] No data provided, returning null');
       return null;
+    }
+
+    // ✅ FIX: Ignorer les lignes de groupe - laisser DevExtreme les rendre nativement
+    // Les lignes de groupe ont rowType='group' ou data.items (array de sous-éléments)
+    // Leur structure est { key: "valeur groupe", items: [...], count: N }
+    if (rowInfo.rowType === 'group' || Array.isArray(rowInfo.data.items)) {
+      return null;  // DevExtreme utilisera son rendu natif pour les groupes
     }
 
     // Vérifier si cette ligne est en mode édition via le gridInstance

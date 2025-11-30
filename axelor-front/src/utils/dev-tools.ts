@@ -153,6 +153,162 @@ export async function updateView(viewName: string, newXml: string) {
 }
 
 /**
+ * Get a view XML definition via API
+ * Usage: getView('view-name')
+ * Returns: { name, title, model, type, xml, id, version }
+ */
+export async function getView(viewName: string) {
+  try {
+    // Get the base path (e.g., /VPAuto)
+    const basePath = window.location.pathname.split('/')[1] || '';
+    const prefix = basePath ? `/${basePath}` : '';
+
+    // Get CSRF token
+    const csrfToken = getCsrfToken();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken;
+    }
+
+    // Search for the view
+    const searchResponse = await fetch(`${prefix}/ws/rest/com.axelor.meta.db.MetaView/search`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({
+        fields: ['name', 'title', 'model', 'type', 'xml'],
+        data: {
+          criteria: [{
+            fieldName: 'name',
+            operator: '=',
+            value: viewName
+          }]
+        }
+      })
+    });
+
+    const searchResult = await searchResponse.json();
+    if (searchResult.total === 0) {
+      console.warn(`⚠️ Vue ${viewName} non trouvée`);
+      return null;
+    }
+
+    const view = searchResult.data[0];
+    console.log(`✅ Vue ${viewName} trouvée (id: ${view.id})`);
+    return view;
+  } catch (error) {
+    console.error('❌ Erreur lors de la recherche:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get an action XML definition via API
+ * Usage: getAction('action-name')
+ * Returns: { name, type, xml, id, version }
+ */
+export async function getAction(actionName: string) {
+  try {
+    // Get the base path (e.g., /VPAuto)
+    const basePath = window.location.pathname.split('/')[1] || '';
+    const prefix = basePath ? `/${basePath}` : '';
+
+    // Get CSRF token
+    const csrfToken = getCsrfToken();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken;
+    }
+
+    // Search for the action
+    const searchResponse = await fetch(`${prefix}/ws/rest/com.axelor.meta.db.MetaAction/search`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({
+        fields: ['name', 'type', 'xml'],
+        data: {
+          criteria: [{
+            fieldName: 'name',
+            operator: '=',
+            value: actionName
+          }]
+        }
+      })
+    });
+
+    const searchResult = await searchResponse.json();
+    if (searchResult.total === 0) {
+      console.warn(`⚠️ Action ${actionName} non trouvée`);
+      return null;
+    }
+
+    const action = searchResult.data[0];
+    console.log(`✅ Action ${actionName} trouvée (id: ${action.id})`);
+    return action;
+  } catch (error) {
+    console.error('❌ Erreur lors de la recherche:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get a menu item via API
+ * Usage: getMenuItem('menu-name')
+ * Returns: { name, title, parent, action, id, version }
+ */
+export async function getMenuItem(menuName: string) {
+  try {
+    // Get the base path (e.g., /VPAuto)
+    const basePath = window.location.pathname.split('/')[1] || '';
+    const prefix = basePath ? `/${basePath}` : '';
+
+    // Get CSRF token
+    const csrfToken = getCsrfToken();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (csrfToken) {
+      headers['X-CSRF-Token'] = csrfToken;
+    }
+
+    // Search for the menu
+    const searchResponse = await fetch(`${prefix}/ws/rest/com.axelor.meta.db.MetaMenu/search`, {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({
+        fields: ['name', 'title', 'parent', 'action', 'order'],
+        data: {
+          criteria: [{
+            fieldName: 'name',
+            operator: '=',
+            value: menuName
+          }]
+        }
+      })
+    });
+
+    const searchResult = await searchResponse.json();
+    if (searchResult.total === 0) {
+      console.warn(`⚠️ Menu ${menuName} non trouvé`);
+      return null;
+    }
+
+    const menu = searchResult.data[0];
+    console.log(`✅ Menu ${menuName} trouvé (id: ${menu.id})`);
+    return menu;
+  } catch (error) {
+    console.error('❌ Erreur lors de la recherche:', error);
+    throw error;
+  }
+}
+
+/**
  * Update an action XML definition via API
  * Usage: updateAction('action-name', '<action-view>...</action-view>')
  */
@@ -633,6 +789,9 @@ export async function addMenuItem(menuName: string, title: string, parentName?: 
 
 // Expose utilities on window in development mode
 if (import.meta.env.DEV) {
+  (window as any).getView = getView;
+  (window as any).getAction = getAction;
+  (window as any).getMenuItem = getMenuItem;
   (window as any).updateView = updateView;
   (window as any).updateAction = updateAction;
   (window as any).addView = addView;
@@ -645,6 +804,6 @@ if (import.meta.env.DEV) {
   (window as any).dxGetLogs = dxGetLogs;
   (window as any).dxClearLogs = dxClearLogs;
   (window as any).dxDownloadLogs = dxDownloadLogs;
-  console.log('🔧 DevTools loaded: updateView(), updateAction(), addView(), addAction(), addMenuItem(), removeView(), removeAction(), removeMenuItem() are available');
+  console.log('🔧 DevTools loaded: getView(), getAction(), getMenuItem(), updateView(), updateAction(), addView(), addAction(), addMenuItem(), removeView(), removeAction(), removeMenuItem() are available');
   console.log('📊 Logging: dxLog(), dxGetLogs(), dxClearLogs(), dxDownloadLogs() are available (using IndexedDB with durability: strict)');
 }

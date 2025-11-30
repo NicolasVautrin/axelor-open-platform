@@ -51,44 +51,51 @@ export function getGridInstance(dataGridRef: RefObject<React.ElementRef<typeof D
 }
 
 /**
- * WORKAROUND: Récupère un élément cellule en accédant directement au DOM
+ * Récupère un élément cellule en accédant directement au DOM.
  *
- * DevExtreme getCellElement() ne fonctionne pas avec dataRowRender car :
- * - DevExtreme wrappe notre <tr> dans un <tbody class="dx-row">
- * - getCellElement() appelle tbody.children() qui retourne les <tr> au lieu des <td>
- *
- * Cette fonction contourne le problème en accédant directement au DOM.
+ * Note: La méthode native gridInstance.getCellElement() ne fonctionne pas
+ * avec dataRowRender car DevExtreme wrappe chaque ligne dans son propre tbody.
  *
  * @param dataGridRef - Référence au composant DataGrid
  * @param rowIndex - Index de la ligne (0-based)
  * @param columnIndex - Index de la colonne (0-based)
  * @returns L'élément HTMLTableCellElement ou null si non trouvé
  */
-export function getCellElementWorkaround(
+export function getCellElement(
   dataGridRef: RefObject<React.ElementRef<typeof DataGrid> | null>,
   rowIndex: number,
   columnIndex: number
 ): HTMLTableCellElement | null {
   const gridInstance = getGridInstance(dataGridRef);
   if (!gridInstance) {
-    console.warn('[getCellElementWorkaround] No grid instance');
+    console.warn('[getCellElement] No grid instance');
     return null;
   }
 
-  // Trouver le tbody qui contient les data rows
   const gridElement = gridInstance.element();
-  const tbody = gridElement?.querySelector('tbody.dx-data-row');
 
-  if (!tbody) {
-    console.warn('[getCellElementWorkaround] tbody.dx-data-row not found');
+  // ✅ FIX: Avec dataRowRender, CHAQUE ligne est dans son propre tbody.dx-data-row
+  // Donc on doit sélectionner TOUS les tbody, pas juste le premier
+  const allTbodies = gridElement?.querySelectorAll('tbody.dx-data-row');
+
+  if (!allTbodies || allTbodies.length === 0) {
+    console.warn('[getCellElement] No tbody.dx-data-row found');
     return null;
   }
 
-  // Récupérer le TR à l'index rowIndex (premier enfant du tbody)
-  const tr = tbody.children[rowIndex] as HTMLElement;
+  // Récupérer le tbody à l'index rowIndex
+  const targetTbody = allTbodies[rowIndex] as HTMLElement;
 
-  if (!tr || tr.tagName !== 'TR') {
-    console.warn('[getCellElementWorkaround] TR not found at rowIndex:', rowIndex);
+  if (!targetTbody) {
+    console.warn('[getCellElement] tbody not found at rowIndex:', rowIndex, 'total tbodies:', allTbodies.length);
+    return null;
+  }
+
+  // Récupérer le TR à l'intérieur de ce tbody (il n'y en a qu'un avec dataRowRender)
+  const tr = targetTbody.querySelector('tr.dx-data-row') as HTMLElement;
+
+  if (!tr) {
+    console.warn('[getCellElement] TR not found in tbody at rowIndex:', rowIndex);
     return null;
   }
 
@@ -96,7 +103,7 @@ export function getCellElementWorkaround(
   const cell = tr.children[columnIndex] as HTMLTableCellElement;
 
   if (!cell || cell.tagName !== 'TD') {
-    console.warn('[getCellElementWorkaround] TD not found at columnIndex:', columnIndex);
+    console.warn('[getCellElement] TD not found at columnIndex:', columnIndex);
     return null;
   }
 

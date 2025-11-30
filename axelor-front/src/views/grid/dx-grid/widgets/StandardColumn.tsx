@@ -3,6 +3,7 @@ import type { GridView } from "@/services/client/meta.types";
 import { Cell } from "@/views/grid/renderers/cell/cell";
 import { DxEditCell } from "../widgets/DxEditCell";
 import { DxDisplayCell } from "../widgets/DxDisplayCell";
+import { DxGroupCell } from "../widgets/DxGroupCell";
 
 interface StandardColumnProps {
   col: any;
@@ -12,7 +13,7 @@ interface StandardColumnProps {
   actionExecutor: any;
   onUpdate: (record: any) => Promise<any>;
   allFields: Record<string, any>;
-  onCellClick?: (e: any) => void;
+  onUngroup?: (dataField: string) => void;
 }
 
 /**
@@ -30,7 +31,7 @@ export function getStandardColumnProps({
   actionExecutor,
   onUpdate,
   allFields,
-  onCellClick
+  onUngroup,
 }: StandardColumnProps) {
   return {
     dataField: col.dataField,
@@ -98,6 +99,21 @@ export function getStandardColumnProps({
           allFields={allFields}
           view={view}
           viewContext={viewContext}
+        />
+      );
+    } : undefined,
+
+    // Mode groupe : Personnaliser le rendu des cellules de groupe avec menu contextuel
+    // On passe rowElement pour permettre la correction des largeurs des cellules expand
+    groupCellRender: onUngroup ? (cellData: any) => {
+      return (
+        <DxGroupCell
+          data={cellData.data}
+          column={cellData.column}
+          text={cellData.text || cellData.displayValue || String(cellData.value ?? '')}
+          summaryItems={cellData.summaryItems}
+          onUngroup={onUngroup}
+          rowElement={cellData.rowElement}
         />
       );
     } : undefined,

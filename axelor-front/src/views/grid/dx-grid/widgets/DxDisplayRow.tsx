@@ -70,13 +70,38 @@ export const DxDisplayRow = React.memo(function DxDisplayRow(props: DxDisplayRow
 
   return (
     <tr className="dx-row dx-data-row dx-row-lines">
+      {/* Rendu des colonnes - gestion spéciale pour les colonnes expand (groupement) */}
       {columns.map((col: any, index: number) => {
-        const key = col.dataField || `col_${index}`;
+        // Détecter les colonnes expand (boutons +/- pour ouvrir/fermer les groupes)
+        const isExpandColumn = col.command === "expand" || col.type === "groupExpand";
+        // ✅ FIX: Utiliser l'index pour garantir l'unicité des clés
+        // DevExtreme peut inclure plusieurs fois la même colonne quand le groupement est actif
+        const key = `${col.dataField || 'col'}_${index}`;
         const leftOffset = leftOffsets.get(col.dataField || col.name || col.caption);
         const rightOffset = rightOffsets.get(col.dataField || col.name || col.caption);
 
         // Lookup O(1) dans la Map des props de colonnes
         const colProps = col.dataField ? columnPropsMap.get(col.dataField) : undefined;
+
+        // ✅ FIX GROUPING: Colonnes expand → cellule vide (pour alignement avec header)
+        // Les colonnes expand ont un dataField mais doivent être rendues comme cellules vides dans les data rows
+        // IMPORTANT: On doit passer les classes CSS de DevExtreme pour que le CSS puisse cibler cette cellule
+        if (isExpandColumn) {
+          return (
+            <DxCell
+              key={key}
+              col={col}
+              leftOffset={leftOffset}
+              rightOffset={rightOffset}
+              className="dx-command-expand dx-datagrid-group-space"
+            >
+              {/* Cellule vide pour expand - les data rows n'ont pas de bouton expand */}
+            </DxCell>
+          );
+        }
+
+        // Note: Avec showWhenGrouped: true, les colonnes groupées restent visibles
+        // et affichent leurs données normalement (pas de cellule vide)
 
         // Colonnes sans dataField (système) → cellule vide
         if (!col.dataField) {

@@ -92,8 +92,9 @@ export function useDxColumns({ view, fields, groupByFields, gridStateColumns = [
           };
         }
 
-        // Pour les colonnes normales, utiliser la largeur sauvegardée en priorité
-        // Si pas de largeur définie, utiliser minWidth comme largeur par défaut (évite la compression des colonnes)
+        // Pour les colonnes normales, utiliser la largeur sauvegardée ou définie dans la vue
+        // IMPORTANT: Toujours définir une largeur par défaut pour éviter les problèmes avec table-layout:fixed
+        // quand le groupement est actif et tous les groupes sont collapsed (pas de data rows pour calculer les largeurs)
         const columnMinWidth = 100; // COLUMN_MIN_WIDTH par défaut comme Axelor
         const columnWidth = savedColumnState?.width ? parseInt(String(savedColumnState.width)) : (field.width ? parseInt(String(field.width)) : columnMinWidth);
 
@@ -123,7 +124,7 @@ export function useDxColumns({ view, fields, groupByFields, gridStateColumns = [
           alignment,
           // Appliquer le groupIndex si nécessaire
           groupIndex: groupIndex,
-          // Garder la colonne visible même quand elle est groupée
+          // Garder la colonne visible à sa position originale quand elle est groupée
           showWhenGrouped: true,
           // Lookup pour les sélections
           lookup,
@@ -237,6 +238,12 @@ export function useHandleOptionChanged({ setHasGrouping, triggerSearch, setGridS
         .filter((col: any) => col.groupIndex !== undefined);
 
       setHasGrouping(groupedColumns.length > 0);
+
+      // Forcer le recalcul des dimensions après le changement de groupement
+      // pour que la scrollbar horizontale réapparaisse si nécessaire
+      setTimeout(() => {
+        e.component.updateDimensions?.();
+      }, 100);
     }
 
     // Détecter les changements de tri

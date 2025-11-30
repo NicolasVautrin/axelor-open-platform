@@ -57,10 +57,26 @@ export const DxCell = React.memo<DxCellProps>(
 
     // Calculer les styles inline
     const style = useMemo(() => {
+      // ✅ FIX COLUMN ALIGNMENT: Utiliser visibleWidth si c'est un nombre, sinon width
+      // DevExtreme calcule visibleWidth après le layout, c'est la vraie largeur visible
+      const effectiveWidth = typeof col.visibleWidth === "number"
+        ? col.visibleWidth
+        : (typeof col.width === "number" ? col.width : undefined);
+
+      const effectiveMinWidth = col.minWidth || effectiveWidth;
+
+      // Appliquer les mêmes contraintes que le header DevExtreme
       const baseStyle: CSSProperties = {
-        width: col.width || "auto",
-        minWidth: col.minWidth || "50px",
-        maxWidth: col.width || "none",
+        // Si on a une largeur effective, l'appliquer comme contrainte fixe
+        ...(effectiveWidth !== undefined ? {
+          width: effectiveWidth,
+          minWidth: effectiveMinWidth,
+          maxWidth: effectiveWidth,
+        } : {
+          // Sinon, laisser flex
+          width: "auto",
+          minWidth: col.minWidth || 50,
+        }),
         padding: "4px 8px",
         overflow: "hidden",
         ...extraStyle,
@@ -81,7 +97,7 @@ export const DxCell = React.memo<DxCellProps>(
       }
 
       return baseStyle;
-    }, [col.width, col.minWidth, isSticky, isStickyLeft, isStickyRight, leftOffset, rightOffset, extraStyle]);
+    }, [col.width, col.minWidth, col.visibleWidth, isSticky, isStickyLeft, isStickyRight, leftOffset, rightOffset, extraStyle]);
 
     return (
       <td className={className} style={style}>

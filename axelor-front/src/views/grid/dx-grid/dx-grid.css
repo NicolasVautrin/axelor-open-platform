@@ -477,3 +477,123 @@
 [data-bs-theme="dark"] .dx-datagrid .dx-col-fixed {
   background-color: #1e1e2d !important;
 }
+
+/* ===== FIX COLUMN ALIGNMENT avec dataRowRender ===== */
+
+/*
+ * Avec dataRowRender, DevExtreme wrappe chaque ligne dans son propre <tbody>.
+ * IMPORTANT: Ne PAS utiliser table-layout: auto car cela casse la synchronisation
+ * du scroll horizontal entre headers et données.
+ * DevExtreme a besoin de table-layout: fixed pour fonctionner correctement.
+ */
+
+/* Forcer les cellules des lignes custom à respecter les largeurs */
+.dx-datagrid-rowsview tbody.dx-data-row td.dx-cell {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  box-sizing: border-box !important;
+}
+
+/* ===== LIGNES DE GROUPE (GROUPING) ===== */
+
+/*
+ * Style les lignes de groupe pour qu'elles s'intègrent bien avec les lignes
+ * custom (dataRowRender). DevExtreme utilise .dx-group-row pour les groupes.
+ */
+
+/* Style de base pour les lignes de groupe */
+.dx-datagrid .dx-group-row {
+  background-color: #f5f5f5 !important;
+  font-weight: 600;
+}
+
+/* Dark mode */
+[data-bs-theme="dark"] .dx-datagrid .dx-group-row {
+  background-color: #2a2a3d !important;
+}
+
+/* Cellule de groupe - prendre toute la largeur */
+.dx-datagrid .dx-group-row td {
+  padding: 8px 12px !important;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.2) !important;
+}
+
+/* Colonne expand (group-space) - unifier la largeur à 30px partout */
+.dx-datagrid td.dx-command-expand,
+.dx-datagrid td.dx-datagrid-group-space {
+  width: 30px !important;
+  min-width: 30px !important;
+  max-width: 30px !important;
+  padding: 4px !important;
+  text-align: center !important;
+  box-sizing: border-box !important;
+}
+
+/* Icône expand/collapse */
+.dx-datagrid .dx-group-row .dx-datagrid-group-opened,
+.dx-datagrid .dx-group-row .dx-datagrid-group-closed {
+  color: #666;
+  cursor: pointer;
+}
+
+[data-bs-theme="dark"] .dx-datagrid .dx-group-row .dx-datagrid-group-opened,
+[data-bs-theme="dark"] .dx-datagrid .dx-group-row .dx-datagrid-group-closed {
+  color: #aaa;
+}
+
+/* Texte du groupe - aligner à gauche */
+.dx-datagrid .dx-group-row .dx-group-cell {
+  font-weight: 600;
+  color: #444;
+  text-align: left !important;
+  padding-left: 8px !important;
+}
+
+[data-bs-theme="dark"] .dx-datagrid .dx-group-row .dx-group-cell {
+  color: #ccc;
+}
+
+/* ===== MENU CONTEXTUEL GROUPE ===== */
+
+/*
+ * Menu contextuel pour dégrouper les colonnes.
+ * Rendu via Portal dans document.body.
+ */
+
+.dx-group-context-menu {
+  position: fixed;
+  z-index: 10000;
+  background-color: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  padding: 4px 0;
+  min-width: 120px;
+}
+
+.dx-group-context-menu-item {
+  padding: 8px 16px;
+  cursor: pointer;
+  color: #333;
+  list-style: none;
+}
+
+.dx-group-context-menu-item:hover {
+  background-color: #f5f5f5;
+}
+
+/* Dark mode */
+[data-bs-theme="dark"] .dx-group-context-menu {
+  background-color: #1e1e2d;
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+[data-bs-theme="dark"] .dx-group-context-menu-item {
+  color: #e0e0e0;
+}
+
+[data-bs-theme="dark"] .dx-group-context-menu-item:hover {
+  background-color: #2d2d42;
+}

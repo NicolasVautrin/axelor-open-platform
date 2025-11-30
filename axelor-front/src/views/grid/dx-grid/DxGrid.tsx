@@ -53,7 +53,7 @@ import {
   mapAxelorTypeToDevExtreme as mapTypeToDevExtreme,
   getFieldsToFetch,
   getGridInstance,
-  getCellElementWorkaround,
+  getCellElement,
   nextId,
   isNewRecord,
 } from "./dx-grid-utils";
@@ -448,7 +448,15 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
         editingRowStoreRef      // ✅ FIX DevExtreme v22: Passer le store dédié
       );
     } else {
-      return createDxDataSource(dataStore, fieldsToFetch, selectionSync);
+      // ✅ FIX: Passer les refs formAtom pour que insert/update puissent lire les vraies données
+      // Car dataRowRender bypasse l'état interne de DevExtreme, les values sont vides
+      return createDxDataSource(
+        dataStore,
+        fieldsToFetch,
+        selectionSync,
+        editingRowFormAtomRef,  // ✅ Ref vers le formAtom de la ligne en édition
+        editingRowStoreRef      // ✅ Store Jotai dédié pour éviter les problèmes de contexte
+      );
     }
   }, [isLocalMode, localRecords, localOnUpdate, localOnSave, localOnDelete, dataStore, fieldsToFetch, setState]);
 
@@ -648,6 +656,16 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
     initialRecordRef.current = null;
   }, []);
 
+  // Gérer le dégroupement d'une colonne (appelé depuis le menu contextuel du groupe)
+  const handleUngroup = useCallback((dataField: string) => {
+    const gridInstance = getGridInstance(dataGridRef);
+    if (gridInstance) {
+      // Retirer le groupIndex de la colonne
+      gridInstance.columnOption(dataField, 'groupIndex', undefined);
+      dxLog('[DxGrid] Ungrouped column:', dataField);
+    }
+  }, []);
+
   // Gérer le toggle de sélection d'une ligne
   const handleToggleSelection = useCallback((rowKey: any) => {
     // OPTIMISATION ANTI-FLICKERING avec atomFamily :
@@ -743,11 +761,28 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
         // Ouvrir la nouvelle ligne en édition
         gridInstance.option('editing.editRowKey', e.key);
 
-        // Mettre le focus sur la cellule cliquée
-        if (newRowIndex >= 0 && clickedColumnIndex >= 0) {
-          const cellElement = gridInstance.getCellElement(newRowIndex, clickedColumnIndex);
-          gridInstance.focus(cellElement);
-        }
+        // ✅ FIX: Attendre le rendu React et utiliser getCellElement comme pour le cas sans switch
+        setTimeout(() => {
+          const cell = getCellElement(dataGridRef, newRowIndex, clickedColumnIndex);
+
+          if (!cell) {
+            console.warn('[handleCellClick:switch] Cell not found');
+            return;
+          }
+
+          // Mettre à jour focusedColumnIndex pour que Tab fonctionne
+          gridInstance.option('focusedColumnIndex', clickedColumnIndex);
+          gridInstance.option('focusedRowIndex', newRowIndex);
+
+          // Focus sur l'input dans la cellule
+          const input = cell.querySelector('input:not([readonly]), select:not([disabled]), textarea:not([readonly])') as HTMLElement;
+
+          if (input) {
+            input.focus();
+          } else {
+            console.warn('[handleCellClick:switch] No focusable input found in cell');
+          }
+        }, 50);
       }
     } else {
       // Pas de switch, ouvrir directement
@@ -757,11 +792,11 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
       gridInstance.editRow(rowIndex);
 
       // Mettre le focus sur la cellule cliquée après que React ait rendu les composants
-      // Utiliser getCellElementWorkaround car getCellElement() ne fonctionne pas avec dataRowRender
+      // Utiliser getCellElement car getCellElement() ne fonctionne pas avec dataRowRender
       const clickedColumnIndex = e.columnIndex;
 
       setTimeout(() => {
-        const cell = getCellElementWorkaround(dataGridRef, rowIndex, clickedColumnIndex);
+        const cell = getCellElement(dataGridRef, rowIndex, clickedColumnIndex);
 
         if (!cell) {
           console.warn('[handleCellClick] Cell not found');
@@ -944,6 +979,17 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
     return () => clearInterval(interval);
   }, []); // Pas de dépendances car on utilise un ref
 
+  // Callback pour personnaliser les colonnes AVANT le rendu initial
+  // Définit une largeur sur les colonnes expand générées par DevExtreme pour le groupement
+  // Note: Les colonnes utilisateur ont déjà une largeur par défaut dans useDxColumns
+  const handleCustomizeColumns = useCallback((columns: any[]) => {
+    columns.forEach((col) => {
+      if ((col.command === 'expand' || col.type === 'groupExpand') && !col.width) {
+        col.width = 30;
+      }
+    });
+  }, []);
+
   // Exposer la méthode onAdd au parent via ref (compatible avec GridComponent)
   useImperativeHandle(ref, () => ({
     onAdd: () => {
@@ -1019,12 +1065,13 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
         actionExecutor,
         onUpdate,
         allFields: fields,
+        onUngroup: handleUngroup,
       });
       map.set(colProps.dataField, colProps);
     });
 
     return map;
-  }, [selectionMode, selectColumnProps, view, editColumnProps, columns, context, onUpdate, fields]);
+  }, [selectionMode, selectColumnProps, view, editColumnProps, columns, context, onUpdate, fields, handleUngroup]);
   // ✅ actionExecutor et handleCellClick retirés des dépendances :
   // - actionExecutor est lié au formAtom, pas aux colonnes (passé dynamiquement par DxEditRow/DxDisplayRow)
   // - handleCellClick est géré au niveau grille via onCellClick={handleCellClick}, pas dans les colonnes
@@ -1077,7 +1124,7 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
         showBorders={true}
         rowAlternationEnabled={true}
         hoverStateEnabled={true}
-        columnAutoWidth={true}
+        columnAutoWidth={!hasGrouping}
         allowColumnResizing={true}
         columnResizingMode="widget"
         wordWrapEnabled={false}
@@ -1086,6 +1133,7 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
         width="100%"
         height="100%"
         keyboardNavigation={KEYBOARD_NAVIGATION}
+        customizeColumns={handleCustomizeColumns}
         onKeyDown={handleKeyDown}
         onFocusedCellChanging={handleFocusedCellChanging}
         onFocusedCellChanged={handleFocusedCellChanged}
@@ -1105,6 +1153,7 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
             onEdit?.(e.data);
           }
         }}
+        // Note: onRowExpanded/onRowCollapsed retirés car updateDimensions/repaint causaient un saut visuel
       >
         {/* Colonne de sélection/undo - affiche checkbox pour lignes normales, undo pour lignes modifiées */}
         {selectionMode !== "none" && (
@@ -1142,7 +1191,7 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
               actionExecutor,
               onUpdate,
               allFields: fields,
-              onCellClick: handleCellClick,
+              onUngroup: handleUngroup,
             })}
           />
         ))}
