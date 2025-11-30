@@ -13,6 +13,8 @@ interface DxCellProps {
   className?: string;
   /** Styles supplémentaires */
   style?: CSSProperties;
+  /** Handler de clic sur la cellule */
+  onClick?: (e: React.MouseEvent) => void;
 }
 
 /**
@@ -29,10 +31,14 @@ interface DxCellProps {
  * Utilisé par DxEditRow et DxDisplayRow pour avoir un rendu cohérent.
  */
 export const DxCell = React.memo<DxCellProps>(
-  function DxCell({ col, children, leftOffset, rightOffset, className: extraClassName, style: extraStyle }) {
+  function DxCell({ col, children, leftOffset, rightOffset, className: extraClassName, style: extraStyle, onClick }) {
+    // Détecter les colonnes expand (groupement) - elles sont toujours sticky à gauche
+    const isExpandColumn = col.command === "expand" || col.type === "groupExpand";
+
     // Détecter si la colonne est sticky (custom) ou fixed (DevExtreme natif)
-    const isSticky = col.stickyLeft || col.stickyRight || col.fixed;
-    const isStickyLeft = col.stickyLeft || (col.fixed && col.fixedPosition === "left");
+    // ✅ FIX: Inclure les colonnes expand comme sticky
+    const isSticky = col.stickyLeft || col.stickyRight || col.fixed || isExpandColumn;
+    const isStickyLeft = col.stickyLeft || (col.fixed && col.fixedPosition === "left") || isExpandColumn;
     const isStickyRight = col.stickyRight || (col.fixed && col.fixedPosition === "right");
 
     // Calculer les classes CSS
@@ -100,7 +106,7 @@ export const DxCell = React.memo<DxCellProps>(
     }, [col.width, col.minWidth, col.visibleWidth, isSticky, isStickyLeft, isStickyRight, leftOffset, rightOffset, extraStyle]);
 
     return (
-      <td className={className} style={style}>
+      <td className={className} style={style} onClick={onClick}>
         {children}
       </td>
     );
@@ -113,7 +119,8 @@ export const DxCell = React.memo<DxCellProps>(
       prev.leftOffset === next.leftOffset &&
       prev.rightOffset === next.rightOffset &&
       prev.className === next.className &&
-      prev.style === next.style
+      prev.style === next.style &&
+      prev.onClick === next.onClick
     );
   }
 );

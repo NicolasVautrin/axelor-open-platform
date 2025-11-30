@@ -181,10 +181,15 @@ export const DxEditRow = React.memo(function DxEditRow(props: DxEditRowProps) {
       const row = rowRef.current;
       if (!row) return;
 
-      // Trouver tous les inputs éditables dans la ligne (dans l'ordre DOM)
-      const editableInputs = Array.from(
-        row.querySelectorAll('input:not([readonly]):not([tabindex="-1"]), select:not([disabled]), textarea:not([readonly])')
+      // Trouver tous les éléments focusables dans la ligne (dans l'ordre DOM)
+      // Exclure: readonly, disabled, type=file/hidden (ne fonctionnent pas avec focus() programmatique)
+      // Inclure: buttons, combobox (pour les widgets comme color picker qui n'ont pas d'input)
+      const allFocusable = Array.from(
+        row.querySelectorAll('input:not([readonly]):not([type="file"]):not([type="hidden"]), select:not([disabled]), textarea:not([readonly]), button:not([disabled]), [role="combobox"]')
       ) as HTMLElement[];
+
+      // Filtrer par tabIndex >= 0 en JavaScript (plus fiable que le sélecteur CSS)
+      const editableInputs = allFocusable.filter(el => el.tabIndex >= 0);
 
       if (editableInputs.length === 0) return;
 

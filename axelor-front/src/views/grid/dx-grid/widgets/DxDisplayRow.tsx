@@ -43,6 +43,11 @@ export const DxDisplayRow = React.memo(function DxDisplayRow(props: DxDisplayRow
     if (!onCellClick || !dataGridRef) return undefined;
 
     return (e: React.MouseEvent) => {
+      // ✅ FIX: Empêcher le bubbling vers handleRowClickAway (document click listener)
+      // Sans ça, quand on clique sur une autre cellule pendant l'édition,
+      // handleRowClickAway ferme l'édition APRÈS que handleCellClick l'ait ouverte
+      e.stopPropagation();
+
       // Récupérer l'instance du grid
       const gridInstance = getGridInstance(dataGridRef);
 
@@ -185,6 +190,7 @@ export const DxDisplayRow = React.memo(function DxDisplayRow(props: DxDisplayRow
               col={col}
               leftOffset={leftOffset}
               rightOffset={rightOffset}
+              onClick={clickHandler}
               style={{
                 overflow: "hidden",
                 textOverflow: "ellipsis",
@@ -192,19 +198,17 @@ export const DxDisplayRow = React.memo(function DxDisplayRow(props: DxDisplayRow
                 cursor: col.allowEditing ? "pointer" : "default",
               }}
             >
-              <div onClick={clickHandler}>
-                <DxDisplayCell
-                  cellData={cellData}
-                  field={colProps.field}
-                  fieldMeta={colProps.fieldMeta}
-                  allFields={fields}
-                  view={view}
-                  viewContext={viewContext}
-                  actionExecutor={actionExecutor}
-                  index={index}
-                  onUpdate={onUpdate}
-                />
-              </div>
+              <DxDisplayCell
+                cellData={cellData}
+                field={colProps.field}
+                fieldMeta={colProps.fieldMeta}
+                allFields={fields}
+                view={view}
+                viewContext={viewContext}
+                actionExecutor={actionExecutor}
+                index={index}
+                onUpdate={onUpdate}
+              />
             </DxCell>
           );
         }

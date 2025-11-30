@@ -8,10 +8,10 @@ import {
   mapAxelorTypeToDevExtreme as mapTypeToDevExtreme,
   getGridInstance,
   isNewRecord,
+  saveEditingRowFormAtom,
 } from "./dx-grid-utils";
 import { convertDxFilterToAxelor } from "./dx-filter-converter";
 import { getDefaultStore } from "jotai";
-import isEqual from "lodash/isEqual";
 import { useGetErrors, showErrors } from "@/views/form/form";
 
 interface UseDxColumnsParams {
@@ -248,7 +248,6 @@ export function useTriggerSearch({ dataStore, fieldsToFetch }: UseTriggerSearchP
 }
 
 interface UseHandleOptionChangedParams {
-  setHasGrouping: React.Dispatch<React.SetStateAction<boolean>>;
   triggerSearch: (options: { sortBy?: string[]; filter?: any }) => Promise<void>;  // Gardé pour les filtres
   setGridState: (updater: (draft: any) => void) => void;
   currentSortByRef: React.MutableRefObject<string[] | undefined>;
@@ -259,7 +258,7 @@ interface UseHandleOptionChangedParams {
 /**
  * Hook pour intercepter les changements d'options DevExtreme (tri, groupement, colonnes)
  */
-export function useHandleOptionChanged({ setHasGrouping, triggerSearch, setGridState, currentSortByRef, dxDataSource, onSyncColumnWidths }: UseHandleOptionChangedParams) {
+export function useHandleOptionChanged({ triggerSearch, setGridState, currentSortByRef, dxDataSource, onSyncColumnWidths }: UseHandleOptionChangedParams) {
   return useCallback((e: any) => {
     // FIX COLUMN RESIZE: Synchroniser les largeurs headers→rowsview après un resize
     // Quand une colonne est redimensionnée, DevExtreme met à jour les headers mais pas le rowsview
@@ -278,12 +277,6 @@ export function useHandleOptionChanged({ setHasGrouping, triggerSearch, setGridS
 
     // Détecter les changements de groupement
     if (e.name === "columns" && e.fullName?.includes("groupIndex")) {
-      // Vérifier s'il y a des colonnes groupées
-      const groupedColumns = e.component.getVisibleColumns()
-        .filter((col: any) => col.groupIndex !== undefined);
-
-      setHasGrouping(groupedColumns.length > 0);
-
       // Forcer le recalcul des dimensions après le changement de groupement
       // pour que la scrollbar horizontale réapparaisse si nécessaire
       setTimeout(() => {
@@ -382,7 +375,7 @@ export function useHandleOptionChanged({ setHasGrouping, triggerSearch, setGridS
         }
       });
     }
-  }, [triggerSearch, setGridState, setHasGrouping, currentSortByRef, dxDataSource]);
+  }, [triggerSearch, setGridState, currentSortByRef, dxDataSource]);
 }
 
 interface UseHandleEditingTabNavigationParams {
@@ -468,59 +461,10 @@ export function useHandleEditingTabNavigation({ dataGridRef }: UseHandleEditingT
  * @param dataGridRef - Référence au DataGrid
  */
 export function useHandleEditingTabKeyDown({ dataGridRef }: UseHandleEditingTabNavigationParams) {
+  // Note: La navigation Tab est maintenant gérée par DxEditRow.handleKeyDown
+  // Ce hook reste pour compatibilité mais ne fait plus rien de significatif
   return useCallback((e: any) => {
-    const isTabKey = e.event?.key === 'Tab' || e.event?.keyCode === 9;
-    if (!isTabKey) return;
-
-    const gridInstance = getGridInstance(dataGridRef);
-    if (!gridInstance) return;
-
-    // Vérifier si on est en mode édition
-    const editRowKey = gridInstance.option('editing.editRowKey');
-    if (editRowKey === undefined || editRowKey === null) return;
-
-    // Approche DOM directe (car editCell() ne fonctionne pas avec dataRowRender)
-    // Récupérer la ligne en édition via DOM
-    const rowIndex = gridInstance.getRowIndexByKey(editRowKey);
-    if (rowIndex < 0) return;
-
-    const rowElement = gridInstance.getRowElement(rowIndex);
-    if (!rowElement || !rowElement[0]) return;
-
-    const editingRowDomElement = rowElement[0] as HTMLElement;
-
-    // Trouver tous les inputs éditables dans la ligne (dans l'ordre DOM)
-    const editableInputs = Array.from(
-      editingRowDomElement.querySelectorAll('input:not([readonly]), select:not([disabled]), textarea:not([readonly])')
-    ) as HTMLElement[];
-
-    if (editableInputs.length === 0) return;
-
-    // Trouver l'input actuellement focusé
-    const activeElement = document.activeElement as HTMLElement;
-    const currentInputIndex = editableInputs.indexOf(activeElement);
-
-    if (currentInputIndex === -1) return;
-
-    const isShiftPressed = e.event?.shiftKey;
-    const isLastInput = !isShiftPressed && currentInputIndex === editableInputs.length - 1;
-    const isFirstInput = isShiftPressed && currentInputIndex === 0;
-
-    // Si on est sur le dernier/premier input, boucler
-    if (isLastInput || isFirstInput) {
-      e.event.preventDefault();
-      e.event.stopPropagation();
-
-      const nextInputIndex = isLastInput ? 0 : editableInputs.length - 1;
-      const nextInput = editableInputs[nextInputIndex];
-
-      if (nextInput) {
-        // Focus sur le prochain input
-        setTimeout(() => {
-          nextInput.focus();
-        }, 0);
-      }
-    }
+    // Tab est géré par DxEditRow.handleKeyDown directement sur le <tr>
   }, [dataGridRef]);
 }
 
@@ -603,14 +547,13 @@ export function useHandleEditingEnterKeyDown({
       await saveEditingRowAndClose(
         gridInstance,
         isLocalMode || false,
-        editingRowFormAtomRef?.current,  // Valeur directe
-        editingRowStoreRef?.current,  // Valeur directe
+        editingRowFormAtomRef?.current,
+        editingRowStoreRef?.current,
         initialRecordRef,
         isNewRowRef,
         localOnSave,
         localOnUpdate,
-        getErrors,
-        '[handleEnterKeyDown]'
+        getErrors
       );
 
       // ✅ FIX: Clear les refs AVANT de créer une nouvelle ligne
@@ -885,14 +828,13 @@ export function useHandleRowClickAway({
       await saveEditingRowAndClose(
         gridInstance,
         isLocalMode || false,
-        localFormAtom || editingRowFormAtomRef?.current,  // Local en priorité
-        localStore || editingRowStoreRef?.current,  // Local en priorité
+        localFormAtom || editingRowFormAtomRef?.current,
+        localStore || editingRowStoreRef?.current,
         initialRecordRef,
         isNewRowRef,
         localOnSave,
         localOnUpdate,
-        getErrors,
-        '[handleRowClickAway]'
+        getErrors
       );
 
       // ✅ FIX: Clear les refs après save pour éviter que la prochaine ligne réutilise l'ancien formAtom
@@ -915,6 +857,8 @@ export function useHandleRowClickAway({
  * Fonction factorisée pour sauvegarder la ligne en édition selon le pattern Axelor
  * Utilisée par handleRowClickAway ET handleKeyDown (Enter)
  *
+ * Utilise saveEditingRowFormAtom() pour factoriser la logique commune.
+ *
  * @param formAtom - Le formAtom de la ligne en édition (valeur directe, pas une ref)
  * @param store - Le store Jotai dédié à cette ligne (valeur directe, pas une ref)
  * @param isNewRowRef - Indique si on crée une NOUVELLE ligne (handleInitNewRow) vs édite une existante
@@ -928,70 +872,29 @@ async function saveEditingRowAndClose(
   isNewRowRef: React.RefObject<boolean> | undefined,
   localOnSave: ((record: any) => Promise<any>) | undefined,
   localOnUpdate: ((record: any) => Promise<any>) | undefined,
-  getErrors: ((formState?: any) => any) | undefined,
-  logPrefix: string = '[saveEditingRow]'
+  getErrors: ((formState?: any) => any) | undefined
 ) {
-  // Pattern Axelor : Si en mode local (O2M), sauvegarder manuellement via formAtom
-  if (isLocalMode && formAtom && initialRecordRef?.current) {
-    // 1. Blur-focus l'input actif pour finaliser la valeur (comme Axelor)
-    const activeElement = document.activeElement as HTMLElement;
-    if (activeElement && activeElement.blur) {
-      activeElement.blur();
-      activeElement.focus?.();
-
-      // ⚠️ CRITIQUE: Attendre que les handlers onBlur/onChange se terminent
-      // Sans ce délai, le formState est lu AVANT que la valeur soit propagée
-      await new Promise(resolve => setTimeout(resolve, 50));
-    }
-
-    // 2. Lire le formAtom pour obtenir les valeurs modifiées
-    // ✅ FIX DevExtreme v22: Utiliser le store DÉDIÉ passé par DxEditRow au lieu de getDefaultStore()
-    // DevExtreme v22 utilise createPortal() qui casse le contexte React, donc getDefaultStore()
-    // retourne une instance différente de celle utilisée par les widgets dans le portal
+  // Utiliser formAtom pour TOUS les cas (O2M et standalone)
+  // DevExtreme's saveEditData() ne fonctionne pas avec dataRowRender
+  // car il ne peut pas tracker les modifications dans nos widgets custom
+  if (formAtom && initialRecordRef?.current) {
     const storeToUse = store || getDefaultStore();
-    const formState = storeToUse.get(formAtom) as any;
-
-    // 3. Valider les champs required AVANT de sauvegarder (pattern Axelor)
-    if (getErrors) {
-      const errors = getErrors(formState);
-      if (errors) {
-        showErrors(errors);
-        // Ne pas fermer la ligne - garder le mode édition
-        return;
-      }
-    }
-
-    const currentRecord = formState?.record;
-
-    // 3. Comparer avec le record original (isEqual)
-    // IMPORTANT: isNew est basé sur isNewRowRef (set dans handleInitNewRow/handleEditingStart)
-    // et NON sur l'ID négatif. Cela permet de distinguer :
-    // - Création d'une NOUVELLE ligne (handleInitNewRow → isNewRowRef=true → onSave → trigger onNew)
-    // - Edition d'une ligne EXISTANTE avec ID négatif (handleEditingStart → isNewRowRef=false → onUpdate → trigger onChange)
-    const isNew = isNewRowRef?.current ?? false;
-    const hasChanges = !isEqual(initialRecordRef.current, currentRecord);
-
-    // 4. Si changé : appeler onUpdate/onSave directement (comme Axelor)
-    if (hasChanges || isNew) {
-      try {
-        if (isNew && localOnSave) {
-          await localOnSave(currentRecord);
-        } else if (!isNew && localOnUpdate) {
-          await localOnUpdate(currentRecord);
-        }
-      } catch (error) {
-        console.error("[DxGrid] Save failed:", error);
-      }
-    }
-
-    // 5. Toujours fermer la ligne avec cancelEditData() (pas saveEditData car on a déjà sauvé)
-    await gridInstance.cancelEditData();
+    await saveEditingRowFormAtom({
+      gridInstance,
+      formAtom,
+      store: storeToUse,
+      initialRecord: initialRecordRef.current,
+      isNewRow: isNewRowRef?.current ?? false,
+      isLocalMode,
+      localOnUpdate,
+      localOnSave,
+      closeAfterSave: true,
+      reloadAfterSave: !isLocalMode,
+      getErrors,
+      showErrors,
+    });
   } else {
-    // Mode standard DevExtreme (non-O2M ou pas de formAtom)
-    if (!gridInstance.hasEditData()) {
-      await gridInstance.cancelEditData();
-    } else {
-      await gridInstance.saveEditData();
-    }
+    // Fallback: Mode standard DevExtreme (pas de formAtom disponible)
+    await gridInstance.saveEditData();
   }
 }

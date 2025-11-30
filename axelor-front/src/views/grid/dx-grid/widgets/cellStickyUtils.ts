@@ -63,39 +63,24 @@ export function calculateFixedOffsets(columns: any[]): {
 }
 
 /**
- * Corrige les positions left des headers sticky quand il y a des colonnes expand.
- * Les colonnes expand sont à gauche, donc les colonnes select/edit doivent être décalées.
+ * Corrige les positions left des headers sticky.
+ * Parcourt toutes les colonnes sticky et calcule leur offset cumulatif.
  *
  * @param gridElement - Element racine de la grille DevExtreme
- * @param visibleColumns - Colonnes visibles (gridInstance.getVisibleColumns())
+ * @param visibleColumns - Colonnes visibles (gridInstance.getVisibleColumns()) - non utilisé mais gardé pour compatibilité
  */
 export function fixHeaderStickyPositions(gridElement: HTMLElement, visibleColumns: any[]): void {
-  // Calculer la largeur totale des colonnes expand
-  let expandColumnsWidth = 0;
-  visibleColumns.forEach((col: any) => {
-    if (isExpandColumn(col)) {
-      expandColumnsWidth += typeof col.width === 'number' ? col.width : 30;
-    }
-  });
-
-  if (expandColumnsWidth === 0) return;
-
-  // Corriger les headers select/edit
   const headerRow = gridElement.querySelector('.dx-datagrid-headers .dx-header-row') as HTMLElement;
   const filterRow = gridElement.querySelector('.dx-datagrid-headers .dx-datagrid-filter-row') as HTMLElement;
 
   [headerRow, filterRow].forEach((row) => {
     if (!row) return;
     const cells = row.querySelectorAll('td') as NodeListOf<HTMLElement>;
-    let currentOffset = expandColumnsWidth;
+    let currentOffset = 0;
 
     cells.forEach((cell) => {
-      // Ignorer les colonnes expand (déjà gérées par CSS)
-      if (cell.classList.contains('dx-command-expand') || cell.classList.contains('dx-datagrid-group-space')) {
-        return;
-      }
-
       const style = window.getComputedStyle(cell);
+      // Pour toutes les colonnes sticky, calculer l'offset cumulatif
       if (style.position === 'sticky') {
         cell.style.left = `${currentOffset}px`;
         currentOffset += cell.offsetWidth || 30;

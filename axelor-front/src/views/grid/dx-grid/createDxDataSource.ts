@@ -31,9 +31,10 @@ export function createDxDataSource(
   selectionSync?: SelectionSyncOptions,
   editingRowFormAtomRef?: React.MutableRefObject<any>,
   editingRowStoreRef?: React.MutableRefObject<any>,
-  currentSortByRef?: React.MutableRefObject<string[] | undefined>
+  currentSortByRef?: React.MutableRefObject<string[] | undefined>,
+  searchOptionsRef?: React.MutableRefObject<Partial<import("@/services/client/data").SearchOptions> | undefined>
 ) {
-  const dxGridStore = new CustomStore({
+  const dxStore = new CustomStore({
     key: "id",
 
     /**
@@ -101,10 +102,17 @@ export function createDxDataSource(
         }
 
         // 3. Convertir la pagination
-        if (loadOptions.skip !== undefined) {
+        // ✅ FIX PAGINATION: Utiliser les valeurs d'Axelor (searchOptionsRef) au lieu de DevExtreme (loadOptions)
+        // Quand Axelor change de page via sa toolbar, il met à jour searchOptions.offset/limit
+        // Mais DevExtreme passe loadOptions.skip=0 car il ne gère pas la pagination Axelor
+        if (searchOptionsRef?.current?.offset !== undefined) {
+          searchOptions.offset = searchOptionsRef.current.offset;
+        } else if (loadOptions.skip !== undefined) {
           searchOptions.offset = loadOptions.skip;
         }
-        if (loadOptions.take !== undefined) {
+        if (searchOptionsRef?.current?.limit !== undefined) {
+          searchOptions.limit = searchOptionsRef.current.limit;
+        } else if (loadOptions.take !== undefined) {
           searchOptions.limit = loadOptions.take;
         }
 
@@ -177,7 +185,9 @@ export function createDxDataSource(
           }
         }
 
-        const recordToSave = { ...clonedOriginal, ...valuesToMerge };
+        // ✅ FIX: Toujours utiliser la version du serveur pour éviter OptimisticLockException
+        // Le formAtom peut contenir une version obsolète (ex: version=0 après un insert)
+        const recordToSave = { ...clonedOriginal, ...valuesToMerge, version: clonedOriginal.version };
         const result = await dataStore.save(recordToSave, { fields: fieldsToFetch });
 
         return JSON.parse(JSON.stringify(result));
@@ -202,8 +212,9 @@ export function createDxDataSource(
   });
 
   const dataSource = new DataSource({
-    store: dxGridStore,
-    reshapeOnPush: true,
+    store: dxStore,
+    // Note: Ne pas utiliser reshapeOnPush car ça déclenche une keyset pagination
+    // qui génère des filtres curseurs incompatibles avec Axelor
   });
 
   enableDataSourceDebug(dataSource);

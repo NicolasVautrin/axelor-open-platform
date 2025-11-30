@@ -55,6 +55,7 @@ import {
   getCellElement,
   nextId,
   isNewRecord,
+  saveEditingRowFormAtom,
 } from "./dx-grid-utils";
 import { useDxColumns, useTriggerSearch, useHandleOptionChanged, useHandleEditingTabNavigation, useHandleEditingKeyDown, useHandleRowClickAway } from "./DxGrid.hooks";
 import { createDxDataSource } from "./createDxDataSource";
@@ -74,8 +75,8 @@ import "./dx-grid.css";
 const REMOTE_OPERATIONS = {
   sorting: true,
   grouping: false, // Grouping côté client (comme Axelor) car le serveur retourne des données plates
-  filtering: true,
-  paging: true, // DevExtreme envoie les paramètres de pagination au CustomStore
+  filtering: false, // Désactivé pour éviter que DevExtreme génère des filtres de pagination cursorielle
+  paging: false, // Pagination gérée par Axelor via searchOptionsRef, pas par DevExtreme
 };
 
 const KEYBOARD_NAVIGATION = {
@@ -193,6 +194,12 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
   // ✅ Initialisation avec view.orderBy pour appliquer le tri défini dans la vue XML
   const initialSortBy = useMemo(() => getSortBy(parseOrderBy(view.orderBy)), [view.orderBy]);
   const currentSortByRef = useRef<string[] | undefined>(initialSortBy);
+
+  // ✅ FIX PAGINATION: Ref pour stocker searchOptions d'Axelor
+  // Quand Axelor change de page via sa toolbar, searchOptions.offset/limit sont mis à jour
+  // Le CustomStore lit cette ref pour utiliser les bonnes valeurs de pagination
+  const searchOptionsRef = useRef<typeof searchOptions>(searchOptions);
+  searchOptionsRef.current = searchOptions; // Toujours synchronisé
 
   // Sync ref après le premier render
   useEffect(() => {
@@ -471,24 +478,48 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
           selectionSync,
           editingRowFormAtomRef,  // ✅ Ref vers le formAtom de la ligne en édition
           editingRowStoreRef,     // ✅ Store Jotai dédié pour éviter les problèmes de contexte
-          currentSortByRef        // ✅ Ref pour le tri courant (géré par handleOptionChanged)
+          currentSortByRef,       // ✅ Ref pour le tri courant (géré par handleOptionChanged)
+          searchOptionsRef        // ✅ FIX PAGINATION: Ref pour offset/limit d'Axelor
       );
     }
   }, [isLocalMode, localRecords, localOnUpdate, localOnSave, localOnDelete, dataStore, fieldsToFetch, setState]);
 
-  // Rafraîchir le DataSource quand les records changent
+  // Rafraîchir le DataSource quand les records locaux changent (MODE LOCAL UNIQUEMENT - O2M)
   useEffect(() => {
+    if (!isLocalMode) return;
+
     const gridInstance = getGridInstance(dataGridRef);
     if (gridInstance && dxDataSource) {
       dxDataSource.reload();
     }
-  }, [isLocalMode, localRecords, dataStore.records, dxDataSource]);
+  }, [isLocalMode, localRecords, dxDataSource]);
+
+  // ✅ FIX PAGINATION: Rafraîchir le DataSource quand searchOptions change (pagination Axelor)
+  // En mode remote, la pagination est gérée par Axelor (toolbar) qui appelle onSearch avec les nouvelles options.
+  // On doit recharger le DataSource DevExtreme pour afficher les nouveaux records.
+  // Note: On écoute searchOptions (pas dataStore.records) pour éviter la boucle infinie.
+  const prevSearchOptionsRef = useRef<typeof searchOptions>(undefined);
+  useEffect(() => {
+    if (isLocalMode) return; // Skip en mode local
+
+    // Ignorer le premier render (montage) - le chargement initial est géré par le CustomStore
+    if (prevSearchOptionsRef.current === undefined) {
+      prevSearchOptionsRef.current = searchOptions;
+      return;
+    }
+
+    // Si searchOptions a changé (pagination), recharger le DataSource
+    if (searchOptions !== prevSearchOptionsRef.current) {
+      prevSearchOptionsRef.current = searchOptions;
+      const gridInstance = getGridInstance(dataGridRef);
+      if (gridInstance && dxDataSource) {
+        dxDataSource.reload();
+      }
+    }
+  }, [isLocalMode, searchOptions, dxDataSource]);
 
   // Gestion de la sélection - Par défaut les checkboxes sont activées sauf si selector="none"
   const selectionMode = view.selector === "none" ? "none" : "multiple";
-
-  // État pour savoir si des colonnes sont groupées
-  const [hasGrouping, setHasGrouping] = useState<boolean>(groupByFields.length > 0);
 
   // Ref pour tracker si une ligne est en édition (pour sauvegarde auto sur clic externe)
   // On utilise un ref au lieu d'un state pour éviter de recréer handleDocumentClick
@@ -503,6 +534,10 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
 
   // ✅ FIX COLUMN WIDTH SYNC: Synchroniser les largeurs entre headers et rowsview
   // Utilisé par handleContentReady et handleOptionChanged (lors du resize)
+  // - Colonnes système → 30px
+  // - Colonnes sans largeur définie → 100px
+  // - Si somme < tableau → distribuer l'espace restant au prorata
+  // - Sinon → ne rien faire (scroll horizontal)
   const syncColumnWidths = useCallback((gridInstance: any) => {
     const container = gridInstance?.element();
     if (!container) return;
@@ -514,56 +549,81 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
 
     const headersCols = Array.from(headersTable.querySelectorAll('colgroup col')) as HTMLElement[];
     const rowsviewCols = Array.from(rowsviewTable.querySelectorAll('colgroup col')) as HTMLElement[];
-    const headerTds = Array.from(headersTable.querySelectorAll('.dx-header-row td')) as HTMLElement[];
 
     if (headersCols.length === 0 || rowsviewCols.length !== headersCols.length) return;
 
-    // Récupérer les colonnes via l'API DevExtreme pour identifier système vs données
     const visibleColumns = gridInstance.getVisibleColumns();
+    const totalWidth = headersTable.offsetWidth;
+    const systemColumnWidth = 30;
+    const defaultDataColumnWidth = 100;
 
-    // Calculer la largeur totale et synchroniser
-    let totalWidth = 0;
+    // Calculer les largeurs de base pour chaque colonne
+    const baseWidths: number[] = [];
+    let sumBaseWidths = 0;
+
+    visibleColumns.forEach((col: any) => {
+      const isSystem = col.command || col.type === 'groupExpand' ||
+          (col.dataField && col.dataField.startsWith('$$'));
+
+      let width: number;
+      if (isSystem) {
+        width = systemColumnWidth;
+      } else if (typeof col.width === 'number' && col.width > 0) {
+        width = col.width;  // Largeur définie dans la vue XML
+      } else {
+        width = defaultDataColumnWidth;  // Pas de largeur → 100px
+      }
+
+      baseWidths.push(width);
+      sumBaseWidths += width;
+    });
+
+    // Si somme >= tableau → ne rien modifier (scroll horizontal géré par DevExtreme)
+    if (sumBaseWidths >= totalWidth) {
+      // Juste forcer les colonnes système à 30px
+      visibleColumns.forEach((col: any, index: number) => {
+        if (index >= headersCols.length) return;
+        const isSystem = col.command || col.type === 'groupExpand' ||
+            (col.dataField && col.dataField.startsWith('$$'));
+        if (isSystem) {
+          headersCols[index].style.width = `${systemColumnWidth}px`;
+          rowsviewCols[index].style.width = `${systemColumnWidth}px`;
+        }
+      });
+      return;
+    }
+
+    // Distribuer l'espace restant au prorata des largeurs de données uniquement
+    // Les colonnes système restent à 30px fixe
+    const extraSpace = totalWidth - sumBaseWidths;
+    const sumDataWidths = sumBaseWidths - (baseWidths.filter((_, i) => {
+      const col = visibleColumns[i];
+      return col.command || col.type === 'groupExpand' ||
+          (col.dataField && col.dataField.startsWith('$$'));
+    }).length * systemColumnWidth);
+
+    const ratio = sumDataWidths > 0 ? 1 + (extraSpace / sumDataWidths) : 1;
+
     visibleColumns.forEach((col: any, index: number) => {
       if (index >= headersCols.length) return;
-
-      const headerCol = headersCols[index];
-      const rowsviewCol = rowsviewCols[index];
-      const headerTd = headerTds[index];
 
       const isSystem = col.command || col.type === 'groupExpand' ||
           (col.dataField && col.dataField.startsWith('$$'));
 
-      if (isSystem) {
-        // Colonnes système : forcer à 30px partout
-        headerCol.style.width = '30px';
-        rowsviewCol.style.width = '30px';
-        if (headerTd) {
-          headerTd.style.width = '30px';
-          headerTd.style.maxWidth = '30px';
-        }
-        totalWidth += 30;
-      } else {
-        // Colonnes de données : utiliser la largeur calculée par DevExtreme (offsetWidth)
-        // ou la largeur du style si déjà définie, sinon 100px par défaut
-        const computedWidth = headerCol.offsetWidth || parseInt(rowsviewCol.style.width) || 100;
-        headerCol.style.width = `${computedWidth}px`;
-        rowsviewCol.style.width = `${computedWidth}px`;
-        totalWidth += computedWidth;
-      }
-    });
+      // Colonnes système : toujours 30px, colonnes données : au prorata
+      const finalWidth = isSystem
+          ? systemColumnWidth
+          : Math.floor(baseWidths[index] * ratio);
 
-    // Forcer table-layout: fixed ET la largeur totale
-    headersTable.style.tableLayout = 'fixed';
-    headersTable.style.width = `${totalWidth}px`;
-    rowsviewTable.style.tableLayout = 'fixed';
-    rowsviewTable.style.width = `${totalWidth}px`;
+      headersCols[index].style.width = `${finalWidth}px`;
+      rowsviewCols[index].style.width = `${finalWidth}px`;
+    });
   }, []);
 
   // Intercepter les changements de tri et de groupement
   // ✅ FIX TRI SERVEUR: On passe currentSortByRef et dxDataSource pour que le tri soit géré
   // via la ref (mise à jour ici) + reload du dataSource (au lieu de triggerSearch qui causait double requête)
   const handleOptionChanged = useHandleOptionChanged({
-    setHasGrouping,
     triggerSearch,  // Gardé pour les filtres uniquement
     setGridState,
     currentSortByRef,
@@ -758,11 +818,15 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
   /**
    * Sauvegarder les données d'édition si la grille a des modifications (dirty).
    * Utilise un mutex pour éviter les doubles sauvegardes.
-   * Ferme automatiquement la ligne en édition après la sauvegarde.
    *
-   * @returns true si sauvegarde réussie, false si pas de données ou échec
+   * ✅ FIX: Ne plus utiliser gridInstance.hasEditData() car il ne détecte pas
+   * les modifications dans le formAtom (widgets Axelor custom).
+   * Utilise saveEditingRowFormAtom() qui compare formAtom.record avec initialRecordRef.
+   *
+   * @param reloadAfterSave - Si true, reload la dataSource après save (pour rafraîchir l'affichage)
+   * @returns true si sauvegarde réussie ou rien à sauvegarder, false si échec
    */
-  const saveEditDataIfDirty = useCallback(async () => {
+  const saveEditDataIfDirty = useCallback(async (reloadAfterSave: boolean = false) => {
     if (isSavingRef.current) {
       return false;
     }
@@ -774,21 +838,35 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
 
     isSavingRef.current = true;
 
-    if (!gridInstance.hasEditData()) {
-      isSavingRef.current = false;
-      return false;
-    }
-
     try {
-      await gridInstance.saveEditData();
-      return true;
+      const result = await saveEditingRowFormAtom({
+        gridInstance,
+        formAtom: editingRowFormAtomRef.current,
+        store: editingRowStoreRef.current,
+        initialRecord: initialRecordRef.current,
+        isNewRow: isNewRowRef.current ?? false,
+        isLocalMode,
+        localOnUpdate,
+        localOnSave,
+        closeAfterSave: reloadAfterSave,  // Fermer si reload (le reload ferme de toute façon)
+        reloadAfterSave: reloadAfterSave && !isLocalMode, // Reload seulement en mode standalone
+        logPrefix: '[saveEditDataIfDirty]',
+      });
+
+      // Clear les refs après save+reload
+      if (reloadAfterSave && result.success) {
+        editingRowFormAtomRef.current = null;
+        initialRecordRef.current = null;
+      }
+
+      return result.success;
     } catch (error) {
       console.error("[DxGrid] Save failed:", error);
       return false;
     } finally {
       isSavingRef.current = false;
     }
-  }, []);
+  }, [isLocalMode, localOnSave, localOnUpdate]);
 
   // Gérer le clic sur une cellule pour démarrer l'édition en mode row
   const handleCellClick = useCallback(async (e: any) => {
@@ -827,37 +905,38 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
         currentEditingKey !== null &&
         currentEditingKey !== e.key;
 
-    // Si on switch de ligne, sauvegarder puis ouvrir la nouvelle ligne
+    // Si on switch de ligne, sauvegarder avec reload puis ouvrir la nouvelle ligne
     if (isSwitchingRow) {
       // Empêcher DevExtreme de traiter l'événement immédiatement
       e.handled = true;
 
-      const newRowIndex = gridInstance.getRowIndexByKey(e.key);
+      const targetKey = e.key;
       const clickedColumnIndex = e.columnIndex;
 
-      // Sauvegarder si dirty (avec mutex atomique hasEditData + saveEditData)
-      const saved = await saveEditDataIfDirty();
+      // Sauvegarder avec reload pour rafraîchir l'affichage de l'ancienne ligne
+      // Le reload ferme automatiquement l'édition et met à jour les données
+      const saved = await saveEditDataIfDirty(true);
 
       if (saved !== false) {
-        // Ouvrir la nouvelle ligne en édition
-        gridInstance.option('editing.editRowKey', e.key);
+        // Après le reload, calculer l'index et ouvrir la nouvelle ligne
+        const newRowIndex = gridInstance.getRowIndexByKey(targetKey);
 
-        // ✅ FIX: Attendre le rendu React et utiliser getCellElement comme pour le cas sans switch
+        gridInstance.editRow(newRowIndex);
+
+        // Attendre le rendu React et focus sur la cellule cliquée
         setTimeout(() => {
-          const cell = getCellElement(dataGridRef, newRowIndex, clickedColumnIndex);
+          const currentRowIndex = gridInstance.getRowIndexByKey(targetKey);
+          const cell = getCellElement(dataGridRef, currentRowIndex, clickedColumnIndex);
 
           if (!cell) {
             console.warn('[handleCellClick:switch] Cell not found');
             return;
           }
 
-          // Mettre à jour focusedColumnIndex pour que Tab fonctionne
           gridInstance.option('focusedColumnIndex', clickedColumnIndex);
-          gridInstance.option('focusedRowIndex', newRowIndex);
+          gridInstance.option('focusedRowIndex', currentRowIndex);
 
-          // Focus sur l'input dans la cellule
           const input = cell.querySelector('input:not([readonly]), select:not([disabled]), textarea:not([readonly])') as HTMLElement;
-
           if (input) {
             input.focus();
           } else {
@@ -869,6 +948,12 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
       // Pas de switch, ouvrir directement
       const rowIndex = gridInstance.getRowIndexByKey(e.key);
       const dataField = e.column?.dataField;
+
+      // ✅ FIX: Clear les refs AVANT d'ouvrir la nouvelle ligne
+      // Après un save (Enter ou clickAway), currentEditingKey=null donc isSwitchingRow=false
+      // mais les refs peuvent encore contenir l'ancien formAtom
+      editingRowFormAtomRef.current = null;
+      initialRecordRef.current = null;
 
       gridInstance.editRow(rowIndex);
 
@@ -1248,7 +1333,7 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
               showBorders={true}
               rowAlternationEnabled={true}
               hoverStateEnabled={true}
-              columnAutoWidth={!hasGrouping}
+              columnAutoWidth={true}
               allowColumnResizing={true}
               columnResizingMode="widget"
               wordWrapEnabled={false}

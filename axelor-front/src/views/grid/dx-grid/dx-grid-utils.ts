@@ -6,6 +6,7 @@ import format from "@/utils/format";
 import { toKebabCase } from "@/utils/names";
 import React, { type RefObject } from "react";
 import { DataGrid } from "devextreme-react/data-grid";
+import isEqual from "lodash/isEqual";
 
 /**
  * Génère des IDs négatifs pour les nouvelles lignes non sauvegardées
@@ -322,4 +323,160 @@ export function getFieldsToFetch(
   }
 
   return fields;
+}
+
+/**
+ * Options pour saveEditingRowFormAtom
+ */
+export interface SaveFormAtomOptions {
+  /** Instance DevExtreme DataGrid */
+  gridInstance: any;
+  /** FormAtom contenant les données modifiées */
+  formAtom: any;
+  /** Store Jotai pour lire le formAtom */
+  store: any;
+  /** Record initial pour comparer les modifications */
+  initialRecord: DataRecord | null;
+  /** Si c'est une nouvelle ligne (insert) vs existante (update) */
+  isNewRow: boolean;
+  /** Mode local (O2M) vs distant (standalone) */
+  isLocalMode: boolean;
+  /** Callback pour sauvegarder en mode local (update) */
+  localOnUpdate?: (record: DataRecord) => Promise<any>;
+  /** Callback pour sauvegarder en mode local (insert) */
+  localOnSave?: (record: DataRecord) => Promise<any>;
+  /** Si true, appelle cancelEditData() après save */
+  closeAfterSave?: boolean;
+  /** Si true, appelle dataSource.reload() après save (mode standalone) */
+  reloadAfterSave?: boolean;
+  /** Préfixe pour les logs */
+  logPrefix?: string;
+  /** Callback de validation (pattern Axelor) - retourne les erreurs ou undefined si valide */
+  getErrors?: (formState?: any) => any;
+  /** Callback pour afficher les erreurs de validation */
+  showErrors?: (errors: any) => void;
+}
+
+/**
+ * Résultat de saveEditingRowFormAtom
+ */
+export interface SaveFormAtomResult {
+  /** Si la sauvegarde a réussi (ou rien à sauvegarder) */
+  success: boolean;
+  /** Si des modifications ont été détectées */
+  hasChanges: boolean;
+  /** Le record actuel (modifié) */
+  currentRecord?: DataRecord;
+  /** Si la validation a échoué (erreurs Axelor) */
+  validationFailed?: boolean;
+}
+
+/**
+ * Sauvegarde les données d'une ligne en édition via le formAtom.
+ *
+ * Fonction utilitaire factorisant la logique commune entre :
+ * - saveEditDataIfDirty() : switch de ligne
+ * - saveEditingRowAndClose() : clickAway et Enter
+ *
+ * @param options - Options de sauvegarde
+ * @returns Résultat de la sauvegarde
+ */
+export async function saveEditingRowFormAtom(options: SaveFormAtomOptions): Promise<SaveFormAtomResult> {
+  const {
+    gridInstance,
+    formAtom,
+    store,
+    initialRecord,
+    isNewRow,
+    isLocalMode,
+    localOnUpdate,
+    localOnSave,
+    closeAfterSave = false,
+    reloadAfterSave = false,
+    logPrefix = '[saveFormAtom]',
+    getErrors,
+    showErrors,
+  } = options;
+
+  // Pas de formAtom = pas en édition = succès
+  if (!formAtom || !initialRecord) {
+    return { success: true, hasChanges: false };
+  }
+
+  // 1. Blur-focus l'input actif pour finaliser la valeur (pattern Axelor)
+  const activeElement = document.activeElement as HTMLElement;
+  if (activeElement && activeElement.blur) {
+    activeElement.blur();
+    activeElement.focus?.();
+    // Attendre que les handlers onBlur/onChange se terminent
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+
+  // 2. Lire le formAtom pour obtenir les valeurs modifiées
+  const formState = store.get(formAtom) as any;
+  const currentRecord = formState?.record;
+
+  if (!currentRecord) {
+    return { success: true, hasChanges: false };
+  }
+
+  // 3. Valider les champs required AVANT de sauvegarder (pattern Axelor)
+  if (getErrors) {
+    const errors = getErrors(formState);
+    if (errors) {
+      if (showErrors) {
+        showErrors(errors);
+      }
+      // Ne pas fermer la ligne - garder le mode édition
+      return { success: false, hasChanges: false, currentRecord, validationFailed: true };
+    }
+  }
+
+  // 4. Comparer avec le record original
+  const hasChanges = !isEqual(initialRecord, currentRecord);
+
+  if (!hasChanges && !isNewRow) {
+    // Pas de modifications = succès, fermer si demandé
+    if (closeAfterSave && gridInstance) {
+      await gridInstance.cancelEditData();
+    }
+    return { success: true, hasChanges: false, currentRecord };
+  }
+
+  // 5. Sauvegarder selon le mode
+  try {
+    if (isLocalMode) {
+      // Mode O2M: utiliser les callbacks locaux
+      if (isNewRow && localOnSave) {
+        await localOnSave(currentRecord);
+      } else if (!isNewRow && localOnUpdate) {
+        await localOnUpdate(currentRecord);
+      }
+    } else {
+      // Mode standalone: utiliser le CustomStore directement
+      const dataSource = gridInstance?.getDataSource();
+      const customStore = dataSource?.store();
+      if (customStore) {
+        if (isNewRow) {
+          await customStore.insert(currentRecord);
+        } else {
+          await customStore.update(currentRecord.id, currentRecord);
+        }
+        // Reload pour rafraîchir l'affichage avec les nouvelles données du serveur
+        if (reloadAfterSave) {
+          await dataSource.reload();
+        }
+      }
+    }
+
+    // 6. Fermer la ligne si demandé
+    if (closeAfterSave && gridInstance) {
+      await gridInstance.cancelEditData();
+    }
+
+    return { success: true, hasChanges: true, currentRecord };
+  } catch (error) {
+    console.error(`${logPrefix} Save failed:`, error);
+    return { success: false, hasChanges: true, currentRecord };
+  }
 }
