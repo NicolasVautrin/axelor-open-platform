@@ -201,6 +201,13 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
   const searchOptionsRef = useRef<typeof searchOptions>(searchOptions);
   searchOptionsRef.current = searchOptions; // Toujours synchronisé
 
+  // ✅ FIX REFRESH: Ref pour indiquer au CustomStore d'utiliser le cache (données déjà chargées)
+  // Activé par le subscribe quand dataStore.records change suite à un refresh manuel
+  const useCacheRef = useRef<boolean>(false);
+
+  // ✅ FIX REFRESH: Ref pour accéder à dxDataSource dans le subscribe (créé plus tard)
+  const dxDataSourceRef = useRef<any>(null);
+
   // Sync ref après le premier render
   useEffect(() => {
     if (initialSortBy && initialSortBy.length > 0 && !currentSortByRef.current) {
@@ -310,6 +317,14 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
         setState((draft) => {
           draft.rows = gridRows;
         });
+
+        // ✅ FIX REFRESH: Quand les records changent (refresh manuel depuis toolbar Axelor),
+        // activer le cache et recharger DevExtreme pour qu'il affiche les nouvelles données
+        // Le cache évite une double requête car les données sont déjà chargées dans dataStore.records
+        if (dxDataSourceRef.current) {
+          useCacheRef.current = true;
+          dxDataSourceRef.current.reload();
+        }
       }
     });
   }, [isLocalMode, dataStore, setState]);
@@ -479,10 +494,16 @@ const DxGridInner = forwardRef<DxGridHandle, DxGridInnerProps>(function DxGridIn
           editingRowFormAtomRef,  // ✅ Ref vers le formAtom de la ligne en édition
           editingRowStoreRef,     // ✅ Store Jotai dédié pour éviter les problèmes de contexte
           currentSortByRef,       // ✅ Ref pour le tri courant (géré par handleOptionChanged)
-          searchOptionsRef        // ✅ FIX PAGINATION: Ref pour offset/limit d'Axelor
+          searchOptionsRef,       // ✅ FIX PAGINATION: Ref pour offset/limit d'Axelor
+          useCacheRef             // ✅ FIX REFRESH: Ref pour utiliser le cache lors d'un refresh manuel
       );
     }
   }, [isLocalMode, localRecords, localOnUpdate, localOnSave, localOnDelete, dataStore, fieldsToFetch, setState]);
+
+  // ✅ FIX REFRESH: Synchroniser dxDataSourceRef avec dxDataSource pour le subscribe
+  useEffect(() => {
+    dxDataSourceRef.current = dxDataSource;
+  }, [dxDataSource]);
 
   // Rafraîchir le DataSource quand les records locaux changent (MODE LOCAL UNIQUEMENT - O2M)
   useEffect(() => {

@@ -120,9 +120,12 @@ export function useDxColumns({ view, fields, groupByFields, gridStateColumns = [
         // Déterminer l'alignement selon le type de données (comme Axelor)
         const alignment = dataType === 'number' ? 'right' : 'left';
 
-        // ✅ FIX TRI: Récupérer sortOrder et sortIndex depuis orderBy
-        // Cela permet à DevExtreme de trier correctement les groupes
+        // ✅ FIX TRI: Récupérer sortOrder et sortIndex
+        // Priorité: 1) gridState (tri utilisateur), 2) view.orderBy (tri initial)
         const sortConfig = sortConfigMap.get(field.name);
+        // Utiliser le tri sauvegardé dans gridState s'il existe, sinon celui de view.orderBy
+        const effectiveSortOrder = savedColumnState?.sortOrder ?? sortConfig?.sortOrder;
+        const effectiveSortIndex = savedColumnState?.sortIndex ?? sortConfig?.sortIndex;
 
         return {
           isButton: false,
@@ -149,12 +152,10 @@ export function useDxColumns({ view, fields, groupByFields, gridStateColumns = [
           showWhenGrouped: true,
           // Lookup pour les sélections
           lookup,
-          // ✅ FIX TRI: sortOrder et sortIndex depuis view.orderBy
-          // Permet à DevExtreme de trier les groupes correctement
-          ...(sortConfig && {
-            sortOrder: sortConfig.sortOrder,
-            sortIndex: sortConfig.sortIndex,
-          }),
+          // ✅ FIX TRI: sortOrder et sortIndex depuis gridState (utilisateur) ou view.orderBy (initial)
+          // Permet de conserver le tri après reload()
+          sortOrder: effectiveSortOrder,
+          sortIndex: effectiveSortIndex,
           // Fonction pour extraire la valeur (gère M2O avec targetName)
           calculateCellValue: (rowData: DataRecord) => {
             // Pour les colonnes avec lookup, retourner la valeur brute (pas la traduction)
@@ -285,7 +286,12 @@ export function useHandleOptionChanged({ triggerSearch, setGridState, currentSor
     }
 
     // Détecter les changements de tri
+    // Debug: Filtrer les événements hover/focus qui sont trop fréquents
+    if (!e.fullName?.includes('hover') && !e.fullName?.includes('focus') && !e.fullName?.includes('Hovered')) {
+      console.log(`[OPTION-CHANGED] name=${e.name}, fullName=${e.fullName}, value=${e.value}`);
+    }
     if (e.name === "columns" && e.fullName?.includes("sortOrder")) {
+      console.log(`[SORT-CHANGE] Detected sortOrder change: ${e.fullName} = ${e.value}`);
       // Récupérer les colonnes triées (y compris les colonnes groupées - l'utilisateur peut vouloir trier par la colonne de groupement)
       const sortedColumns = e.component.getVisibleColumns()
         .filter((col: any) => col.sortOrder)
@@ -321,8 +327,8 @@ export function useHandleOptionChanged({ triggerSearch, setGridState, currentSor
     }
 
     // Synchroniser l'état des colonnes DevExtreme avec gridState Axelor
-    // Détecter les changements de colonnes (largeur, visibilité, ordre, groupIndex)
-    if (e.name === "columns" || e.fullName?.includes("width") || e.fullName?.includes("visible") || e.fullName?.includes("visibleIndex") || e.fullName?.includes("groupIndex")) {
+    // Détecter les changements de colonnes (largeur, visibilité, ordre, groupIndex, sortOrder)
+    if (e.name === "columns" || e.fullName?.includes("width") || e.fullName?.includes("visible") || e.fullName?.includes("visibleIndex") || e.fullName?.includes("groupIndex") || e.fullName?.includes("sortOrder") || e.fullName?.includes("sortIndex")) {
       const dxGridInstance = e.component;
       // getVisibleColumns() renvoie les colonnes dans leur ordre actuel et avec leur état visible
       const currentDxColumns = dxGridInstance.getVisibleColumns();
@@ -353,6 +359,9 @@ export function useHandleOptionChanged({ triggerSearch, setGridState, currentSor
             visible: dxCol.visible,
             visibleIndex: dxCol.visibleIndex, // Sauvegarder l'ordre des colonnes
             groupIndex: dxCol.groupIndex, // Sauvegarder le groupIndex pour la personnalisation
+            // ✅ FIX TRI: Sauvegarder sortOrder et sortIndex pour conserver le tri après reload()
+            sortOrder: dxCol.sortOrder,
+            sortIndex: dxCol.sortIndex,
             computed: true, // Marquer comme "calculé" pour le système de sauvegarde Axelor
           };
         });
@@ -367,7 +376,9 @@ export function useHandleOptionChanged({ triggerSearch, setGridState, currentSor
             oldCol.width !== newCol.width ||
             oldCol.visible !== newCol.visible ||
             oldCol.visibleIndex !== newCol.visibleIndex ||
-            oldCol.groupIndex !== newCol.groupIndex;
+            oldCol.groupIndex !== newCol.groupIndex ||
+            oldCol.sortOrder !== newCol.sortOrder ||
+            oldCol.sortIndex !== newCol.sortIndex;
         });
 
         if (hasChanges) {

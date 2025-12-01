@@ -32,7 +32,8 @@ export function createDxDataSource(
   editingRowFormAtomRef?: React.MutableRefObject<any>,
   editingRowStoreRef?: React.MutableRefObject<any>,
   currentSortByRef?: React.MutableRefObject<string[] | undefined>,
-  searchOptionsRef?: React.MutableRefObject<Partial<import("@/services/client/data").SearchOptions> | undefined>
+  searchOptionsRef?: React.MutableRefObject<Partial<import("@/services/client/data").SearchOptions> | undefined>,
+  useCacheRef?: React.MutableRefObject<boolean>
 ) {
   const dxStore = new CustomStore({
     key: "id",
@@ -42,6 +43,16 @@ export function createDxDataSource(
      */
     load: async (loadOptions) => {
       try {
+        // ✅ FIX REFRESH: Si le cache est activé (refresh manuel depuis toolbar Axelor),
+        // retourner les données déjà chargées au lieu de refaire une requête
+        if (useCacheRef?.current) {
+          useCacheRef.current = false; // Désactiver le cache pour les prochains appels
+          return {
+            data: JSON.parse(JSON.stringify(dataStore.records)),
+            totalCount: dataStore.page?.totalCount || dataStore.records.length,
+          };
+        }
+
         // Convertir les options DevExtreme en SearchOptions Axelor
         const searchOptions: any = {
           ...dataStore.options,

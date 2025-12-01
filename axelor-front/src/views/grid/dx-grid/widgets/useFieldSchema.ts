@@ -72,6 +72,11 @@ export function useFieldSchema(
       processedSchema.targetSearch = fieldMeta.targetSearch;
     }
 
+    // Pour les champs traduisibles : copier translatable pour afficher l'icône drapeau
+    if (fieldMeta?.translatable) {
+      processedSchema.translatable = fieldMeta.translatable;
+    }
+
     // Cacher le titre dans les cellules de la grille (le titre de colonne suffit)
     processedSchema.showTitle = false;
 

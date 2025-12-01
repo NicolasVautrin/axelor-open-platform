@@ -91,7 +91,7 @@ import { getSearchFilter } from "./renderers/search/utils";
 import styles from "./grid.module.scss";
 
 // Import du composant DevExtreme Grid
-const DxGridInner = lazy(() => import("./dx-grid/DxGrid"));
+const DxGrid = lazy(() => import("./dx-grid/DxGrid"));
 
 export function Grid(props: ViewProps<GridView>) {
   const { action } = useViewTab();
@@ -1386,7 +1386,8 @@ function GridInner(props: ViewProps<GridView>) {
           <GridWrapper state={state} isTreeGrid={Boolean(isTreeGrid)}>
             {view.css?.includes("dx-grid") ? (
               <Suspense fallback={<div>Loading DevExtreme Grid...</div>}>
-                <DxGridInner
+                <DxGrid
+                  ref={gridRef}
                   meta={meta}
                   dataStore={dataStore}
                   searchAtom={searchAtom!}

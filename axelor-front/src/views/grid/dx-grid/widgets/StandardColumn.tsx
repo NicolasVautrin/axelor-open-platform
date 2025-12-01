@@ -49,9 +49,10 @@ export function getStandardColumnProps({
     dataType: col.dataType,
     groupIndex: col.groupIndex,
     showWhenGrouped: col.showWhenGrouped, // Garder la colonne visible même quand elle est groupée
-    // ✅ FIX TRI: sortOrder et sortIndex depuis view.orderBy
-    sortOrder: col.sortOrder,
-    sortIndex: col.sortIndex,
+    // ✅ FIX TRI: Ne passer sortOrder/sortIndex QUE si définis (évite de "contrôler" le tri)
+    // Passer undefined agit comme un controlled prop et réinitialise le tri après reload()
+    ...(col.sortOrder && { sortOrder: col.sortOrder }),
+    ...(col.sortIndex !== undefined && { sortIndex: col.sortIndex }),
     lookup: col.lookup,
     calculateCellValue: col.calculateCellValue,
     customizeText: col.customizeText,

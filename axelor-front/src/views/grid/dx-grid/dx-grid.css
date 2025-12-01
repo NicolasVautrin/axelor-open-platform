@@ -252,6 +252,11 @@
   color: #a0a0c0 !important;
 }
 
+/* Bordures des headers en dark mode */
+[data-bs-theme="dark"] .dx-datagrid-headers td[role="columnheader"]:not([aria-colindex="1"]):not([aria-colindex="2"]) {
+  border-right: 0.5px solid rgba(200, 200, 200, 0.3) !important;
+}
+
 /* Zone des données */
 [data-bs-theme="dark"] .dx-datagrid-rowsview {
   background-color: #1e1e2d !important;
@@ -414,8 +419,16 @@
   border-right: none !important;
 }
 
-/* Supprimer les bordures verticales dans les headers */
-.dx-datagrid-headers td {
+/* Bordure fine à droite de chaque header pour indiquer la zone de redimensionnement */
+/* Exclure les colonnes système (select/edit) */
+.dx-datagrid-headers td[role="columnheader"]:not([aria-colindex="1"]):not([aria-colindex="2"]) {
+  border-left: none !important;
+  border-right: 0.5px solid rgba(128, 128, 128, 0.4) !important;
+}
+
+/* Colonnes système sans bordure */
+.dx-datagrid-headers td[aria-colindex="1"],
+.dx-datagrid-headers td[aria-colindex="2"] {
   border-left: none !important;
   border-right: none !important;
 }
@@ -724,4 +737,111 @@
 [data-bs-theme="dark"] .dx-datagrid-filter-row .dx-selectbox.dx-state-focused .dx-dropdowneditor-icon,
 [data-bs-theme="dark"] .dx-datagrid-filter-row .dx-selectbox.dx-state-focused .dx-dropdowneditor-icon::before {
   color: #bbb !important;
+}
+
+/* ===== ICÔNES TRI ET FILTRE DANS LES HEADERS ===== */
+
+/* Empêcher le retour à la ligne dans les headers (sauf colonnes système) */
+.dx-datagrid-headers .dx-header-row td[role="columnheader"]:not([aria-colindex="1"]):not([aria-colindex="2"]) {
+  white-space: nowrap !important;
+  overflow: visible !important; /* Permettre aux icônes de déborder si nécessaire */
+  position: relative !important; /* Pour le positionnement absolu des icônes */
+}
+
+/* Le texte du header - PAS de troncature forcée, laisser DevExtreme gérer */
+.dx-datagrid-headers .dx-datagrid-text-content {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  vertical-align: middle !important;
+}
+
+/* Container des icônes - toujours à droite, ordre cohérent */
+/* right: 10px pour laisser l'espace à la poignée de redimensionnement */
+.dx-datagrid-headers .dx-column-indicators {
+  float: none !important;
+  position: absolute !important;
+  right: 10px !important; /* Espace pour la poignée de redimensionnement */
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  display: inline-flex !important;
+  flex-direction: row !important; /* Ordre DOM = ordre visuel */
+  align-items: center !important;
+  gap: 2px !important;
+  pointer-events: auto !important; /* S'assurer que les clics fonctionnent */
+}
+
+/* Icône de tri - toujours AVANT le filtre (order: 1) */
+.dx-datagrid-headers .dx-sort,
+.dx-datagrid-headers .dx-sort-up,
+.dx-datagrid-headers .dx-sort-down {
+  font-size: 14px !important;
+  width: 18px !important;
+  min-width: 18px !important;
+  height: 18px !important;
+  border: 0.5px solid rgba(128, 128, 128, 0.3) !important;
+  border-radius: 3px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  order: 1 !important; /* Tri avant filtre */
+}
+
+.dx-datagrid-headers .dx-sort::before,
+.dx-datagrid-headers .dx-sort-up::before,
+.dx-datagrid-headers .dx-sort-down::before {
+  font-size: 14px !important;
+  pointer-events: none !important; /* Clics passent au span parent */
+}
+
+/* Icône de filtre - toujours APRÈS le tri (order: 2) */
+.dx-datagrid-headers .dx-header-filter {
+  width: 18px !important;
+  min-width: 18px !important;
+  height: 18px !important;
+  border: 0.5px solid rgba(128, 128, 128, 0.3) !important;
+  border-radius: 3px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  order: 2 !important; /* Filtre après tri */
+}
+
+.dx-datagrid-headers .dx-header-filter::before {
+  font-size: 12px !important;
+}
+
+/* ===== POIGNÉE DE REDIMENSIONNEMENT DES COLONNES ===== */
+
+/* Rendre la poignée de redimensionnement plus visible */
+/* Le séparateur est directement dans .dx-datagrid, pas dans .dx-datagrid-headers */
+.dx-datagrid .dx-datagrid-columns-separator {
+  width: 5px !important; /* Plus large pour être plus facile à attraper */
+  cursor: col-resize !important;
+  background: transparent !important;
+  border-right: 0.5px solid rgba(128, 128, 128, 0.5) !important;
+}
+
+/* Ligne verticale plus visible au survol */
+.dx-datagrid .dx-datagrid-columns-separator:hover {
+  border-right: 1px solid rgba(100, 149, 237, 0.8) !important;
+}
+
+/* Tracker de colonne (ligne qui suit pendant le drag) */
+.dx-datagrid .dx-datagrid-tracker {
+  background-color: #6495ed !important; /* Bleu cornflower */
+  width: 2px !important;
+}
+
+/* Dark mode */
+[data-bs-theme="dark"] .dx-datagrid .dx-datagrid-columns-separator {
+  border-right: 0.5px solid rgba(200, 200, 200, 0.4) !important;
+}
+
+[data-bs-theme="dark"] .dx-datagrid .dx-datagrid-columns-separator:hover {
+  border-right: 1px solid rgba(135, 206, 250, 0.8) !important;
+}
+
+[data-bs-theme="dark"] .dx-datagrid .dx-datagrid-tracker {
+  background-color: #87cefa !important;
 }
